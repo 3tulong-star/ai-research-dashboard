@@ -1,0 +1,3 @@
+# Optional discovery adapters for future expansion
+akshare
+efinance
