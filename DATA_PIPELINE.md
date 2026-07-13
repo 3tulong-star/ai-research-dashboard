@@ -42,4 +42,14 @@ npm run data:update
 
 GitHub Actions 使用 UTC cron；当前配置的 `30 11 * * 1-5` 对应北京时间工作日 19:30。GitHub 官方说明：定时任务可能因系统负载出现延迟，因此它适合收盘后的日更，不应被当作精确到秒的行情服务。
 
+## GitHub Pages 发布
+
+项目还包含 `.github/workflows/deploy-pages.yml`。它会构建静态网站并发布到 GitHub Pages；普通代码 push 和行情更新工作流完成后都会触发部署。由于行情快照是在构建时导入的，页面部署完成后才会显示最新的 `data/market-snapshot.json`。
+
+首次启用时，在仓库 **Settings → Pages → Build and deployment → Source** 中选择 **GitHub Actions**。预期地址为：
+
+```text
+https://3tulong-star.github.io/ai-research-dashboard/
+```
+
 开源代码不等于上游数据可以自由再分发。网站公开展示时只保留必要的派生指标与原始来源链接，避免把上游批量数据直接转成公共数据服务。
