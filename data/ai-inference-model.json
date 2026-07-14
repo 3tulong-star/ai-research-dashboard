@@ -1,0 +1,191 @@
+{
+  "id": "ai-inference",
+  "name": "AI 推理产业链",
+  "subtitle": "从调用量、商业化到利润池，再反推公司价格要求什么",
+  "asOf": "2026-07-13",
+  "horizon": ["2027E", "2030E"],
+  "modelNote": "这是可迭代的初始研究模型，不是事实数据库。每次新证据都应映射到一个具体变量，并改变情景区间或公司盈利假设。",
+  "evidenceDimensions": [
+    {
+      "id": "E1",
+      "name": "推理需求继续增长",
+      "shortName": "需求",
+      "weight": 28,
+      "probability": 78,
+      "status": "偏强",
+      "tone": "positive",
+      "question": "更多 Token、调用量和企业席位，能否持续转化为付费推理需求？",
+      "metric": "Token 消耗 · 调用量 · 付费客户数",
+      "impact": "需求变量：1.0x → 1.3x",
+      "evidence": "资本开支和推理基础设施需求仍在累积，但终端调用量和付费质量需要持续拆分。",
+      "confirm": "连续两个季度调用量、付费客户和留存率同步改善。",
+      "falsify": "使用量增速持续低于模型效率提升和硬件供给增速。"
+    },
+    {
+      "id": "E2",
+      "name": "单位经济性改善",
+      "shortName": "经济性",
+      "weight": 20,
+      "probability": 58,
+      "status": "部分验证",
+      "tone": "warm",
+      "question": "推理成本下降，是否会转化为更多使用，而不是全部变成价格下降？",
+      "metric": "单次推理成本 · 单位价格 · 客户毛利",
+      "impact": "渗透系数：0.6x → 1.0x",
+      "evidence": "效率提升会扩大使用场景，但模型和云厂商的价格竞争可能压低价值捕获。",
+      "confirm": "单位成本下降，同时付费调用、客户毛利和使用深度上升。",
+      "falsify": "价格下降速度快于成本下降，且客户没有扩大使用量。"
+    },
+    {
+      "id": "E3",
+      "name": "客户 ROI 可持续",
+      "shortName": "ROI",
+      "weight": 20,
+      "probability": 46,
+      "status": "待验证",
+      "tone": "neutral",
+      "question": "试点能否变成续费、扩容和可量化的客户回报？",
+      "metric": "回本周期 · 续费率 · 生产环境调用占比",
+      "impact": "商业化系数：0.5x → 1.0x",
+      "evidence": "发布和试点信号多于可审计的持续收入，ROI 是当前主线的关键缺口。",
+      "confirm": "客户披露回本周期、续费/扩容和生产环境调用量。",
+      "falsify": "试点数量增加，但续费、付费率和现金回收没有改善。"
+    },
+    {
+      "id": "E4",
+      "name": "基础设施瓶颈持续",
+      "shortName": "瓶颈",
+      "weight": 17,
+      "probability": 74,
+      "status": "偏强",
+      "tone": "positive",
+      "question": "电力、液冷、互联和高端 PCB 是否继续成为推理扩容的刚性约束？",
+      "metric": "机柜功率 · 液冷渗透 · 互联速率 · 交付周期",
+      "impact": "硬件需求：1.0x → 1.25x",
+      "evidence": "高功耗和高带宽带来结构性需求，但效率提升也可能降低单次推理的硬件强度。",
+      "confirm": "订单、交付周期、产能利用率和客户 BOM 同时验证瓶颈。",
+      "falsify": "算力效率提升消除硬件增量，或客户自研明显替代供应商。"
+    },
+    {
+      "id": "E5",
+      "name": "竞争与价格保持理性",
+      "shortName": "价格",
+      "weight": 15,
+      "probability": 35,
+      "status": "偏弱",
+      "tone": "negative",
+      "question": "行业利润能否留在产业链，而不是被模型、云厂商和硬件价格战拿走？",
+      "metric": "ASP · 毛利率 · 集中度 · 替代路线",
+      "impact": "利润池：0.7x → 1.0x",
+      "evidence": "竞争、开源和客户议价仍是利润池最大的反向变量。",
+      "confirm": "核心环节 ASP、毛利率和供应商集中度稳定或改善。",
+      "falsify": "价格战持续，毛利率和应收质量同时恶化。"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "bear",
+      "label": "熊市",
+      "probability": 25,
+      "market2027": 1400,
+      "market2030": 2500,
+      "profitPool2030": 120,
+      "description": "需求增长但 ROI 和价格竞争不支持大规模利润兑现。"
+    },
+    {
+      "id": "base",
+      "label": "基准",
+      "probability": 50,
+      "market2027": 2200,
+      "market2030": 3800,
+      "profitPool2030": 260,
+      "description": "推理需求持续，基础设施受益，但利润率和商业化分化。"
+    },
+    {
+      "id": "bull",
+      "label": "乐观",
+      "probability": 25,
+      "market2027": 3600,
+      "market2030": 6200,
+      "profitPool2030": 520,
+      "description": "ROI 被大规模验证，推理成为稳定的生产性支出。"
+    }
+  ],
+  "companies": [
+    {
+      "code": "300308",
+      "name": "中际旭创",
+      "role": "高速光互联",
+      "exposure": 45,
+      "targetPE": 45,
+      "evidenceScore": 62,
+      "judgement": "主线相关性高，但价格已要求较强的盈利兑现。",
+      "evidence": [
+        {"label": "高速产品代际", "status": "部分验证", "tone": "warm"},
+        {"label": "客户资本开支", "status": "部分验证", "tone": "warm"},
+        {"label": "交付与毛利", "status": "待验证", "tone": "neutral"}
+      ],
+      "next": "高速产品出货、客户订单、毛利率和产能利用率"
+    },
+    {
+      "code": "002837",
+      "name": "英维克",
+      "role": "液冷与温控",
+      "exposure": 35,
+      "targetPE": 45,
+      "evidenceScore": 54,
+      "judgement": "瓶颈逻辑成立，但需要确认 AI 液冷收入占比和订单持续性。",
+      "evidence": [
+        {"label": "液冷订单", "status": "待验证", "tone": "neutral"},
+        {"label": "机柜渗透率", "status": "部分验证", "tone": "warm"},
+        {"label": "交付与毛利", "status": "待验证", "tone": "neutral"}
+      ],
+      "next": "液冷订单、客户结构、交付周期和毛利变化"
+    },
+    {
+      "code": "002463",
+      "name": "沪电股份",
+      "role": "高速高层 PCB",
+      "exposure": 40,
+      "targetPE": 35,
+      "evidenceScore": 66,
+      "judgement": "有业务底盘，关键是 AI 产品结构能否继续提升。",
+      "evidence": [
+        {"label": "AI 产品占比", "status": "部分验证", "tone": "warm"},
+        {"label": "产能爬坡", "status": "偏强", "tone": "positive"},
+        {"label": "ASP 与盈利", "status": "部分验证", "tone": "warm"}
+      ],
+      "next": "AI 产品收入占比、产能利用率、ASP 和毛利率"
+    },
+    {
+      "code": "688256",
+      "name": "寒武纪",
+      "role": "国产 AI 芯片",
+      "exposure": 60,
+      "targetPE": 70,
+      "evidenceScore": 42,
+      "judgement": "弹性大，但设计导入、批量出货和生态仍未形成完整证据链。",
+      "evidence": [
+        {"label": "设计导入", "status": "待验证", "tone": "neutral"},
+        {"label": "批量出货", "status": "待验证", "tone": "neutral"},
+        {"label": "软件生态", "status": "部分验证", "tone": "warm"}
+      ],
+      "next": "实际出货、客户集中度、软件适配和毛利率"
+    },
+    {
+      "code": "300124",
+      "name": "汇川技术",
+      "role": "工业 AI 底盘",
+      "exposure": 8,
+      "targetPE": 30,
+      "evidenceScore": 58,
+      "judgement": "不是纯推理标的，底盘业务提供防守，AI 期权需要单独估值。",
+      "evidence": [
+        {"label": "工控现金流", "status": "偏强", "tone": "positive"},
+        {"label": "机器人增量", "status": "待验证", "tone": "neutral"},
+        {"label": "推理直接暴露", "status": "偏弱", "tone": "negative"}
+      ],
+      "next": "核心业务景气、新产品收入和机器人客户进展"
+    }
+  ]
+}

@@ -1,339 +1,293 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import marketSnapshot from "../data/market-snapshot.json";
+import inferenceModel from "../data/ai-inference-model.json";
 
-type Status = "已兑现" | "部分验证" | "验证中" | "待验证" | "偏热";
-type Sector = "算力" | "工业AI" | "物理AI" | "芯片";
+type Tone = "positive" | "warm" | "negative" | "neutral";
+type View = "mainline" | "companies";
 
-type SnapshotQuote = {
+type Quote = {
   code: string;
   name: string;
   price: number | null;
   changePct: number | null;
-  fiveDayChangePct: number | null;
-  turnoverPct: number | null;
   peTTM: number | null;
   pbMRQ: number | null;
   date: string | null;
-  status: string;
 };
 
-type Company = {
+type EvidenceDimension = {
+  id: string;
+  name: string;
+  shortName: string;
+  weight: number;
+  probability: number;
+  status: string;
+  tone: Tone;
+  question: string;
+  metric: string;
+  impact: string;
+  evidence: string;
+  confirm: string;
+  falsify: string;
+};
+
+type Scenario = {
+  id: string;
+  label: string;
+  probability: number;
+  market2027: number;
+  market2030: number;
+  profitPool2030: number;
+  description: string;
+};
+
+type CompanyEvidence = { label: string; status: string; tone: Tone };
+
+type CompanyModel = {
   code: string;
   name: string;
-  sector: Sector;
   role: string;
-  status: Status;
-  move: string;
-  tone: "up" | "down" | "flat";
-  thesis: string;
-  evidence: string;
+  exposure: number;
+  targetPE: number;
+  evidenceScore: number;
+  judgement: string;
+  evidence: CompanyEvidence[];
   next: string;
-  risk: string;
-  valuation: string;
-  quote?: SnapshotQuote;
 };
 
-const companies: Company[] = [
-  {
-    code: "300308",
-    name: "中际旭创",
-    sector: "算力",
-    role: "高速光互联",
-    status: "部分验证",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "AI 集群扩容继续推动高速光模块升级，供给与客户认证决定利润弹性。",
-    evidence: "已进入重点观察；订单、产品代际和产能利用率需要持续对照财报。",
-    next: "客户资本开支 / 高速产品出货 / 毛利率",
-    risk: "资本开支周期回落；价格竞争；技术路线切换。",
-    valuation: "需要反推 2027—2030 收入与利润",
-  },
-  {
-    code: "002837",
-    name: "英维克",
-    sector: "算力",
-    role: "液冷与温控",
-    status: "验证中",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "算力功耗上升使散热从配套升级为基础设施瓶颈。",
-    evidence: "瓶颈假设成立，但要验证 AI 数据中心收入占比和订单持续性。",
-    next: "液冷订单 / 机柜渗透率 / 交付与毛利",
-    risk: "客户自研；传统温控业务拖累；订单兑现慢。",
-    valuation: "警惕把远期液冷收入一次性计入",
-  },
-  {
-    code: "688017",
-    name: "绿的谐波",
-    sector: "物理AI",
-    role: "精密减速器",
-    status: "验证中",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "机器人关节放量时，具备认证壁垒的精密传动部件有较高单机弹性。",
-    evidence: "高弹性候选；需要把送样、定点和量产严格区分。",
-    next: "客户定点 / 量产交付 / ASP 与良率",
-    risk: "替代路线；客户压价；机器人放量低于预期。",
-    valuation: "不接受只由整机远期销量支撑的估值",
-  },
-  {
-    code: "300124",
-    name: "汇川技术",
-    sector: "工业AI",
-    role: "运动控制与自动化",
-    status: "已兑现",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "已有工控现金流提供底盘，AI 和机器人带来增量期权。",
-    evidence: "基本业务先验证，再观察 AI/机器人增量是否进入收入和利润。",
-    next: "工控景气 / 新产品收入 / 机器人客户进展",
-    risk: "制造业资本开支波动；AI 期权兑现慢。",
-    valuation: "用核心业务估值覆盖底盘，单独给期权估值",
-  },
-  {
-    code: "603662",
-    name: "柯力传感",
-    sector: "物理AI",
-    role: "力传感器",
-    status: "待验证",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "灵巧操作需要力觉闭环，六维力传感器可能是具身智能的关键接口。",
-    evidence: "方向弹性大，核心是客户认证、可靠性、量产良率和单机价值量。",
-    next: "样机到量产 / 客户数量 / 传感器 ASP",
-    risk: "路线替代；精度与可靠性不够；需求停留在样机。",
-    valuation: "必须看到收入曲线再提高估值权重",
-  },
-  {
-    code: "688256",
-    name: "寒武纪",
-    sector: "芯片",
-    role: "国产 AI 芯片",
-    status: "偏热",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "国产算力自主化带来高弹性，但真正决定价值的是持续供货和软件生态。",
-    evidence: "作为高弹性观察对象，不把政策、发布会或单一客户传闻当作兑现。",
-    next: "设计导入 / 规模出货 / 软件生态与毛利",
-    risk: "估值透支；产品迭代；客户集中；生态竞争。",
-    valuation: "重点做反向估值，不追逐单一预期",
-  },
-  {
-    code: "002463",
-    name: "沪电股份",
-    sector: "算力",
-    role: "高端 PCB",
-    status: "部分验证",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "AI 服务器和高速交换机提升高层数、高速 PCB 的价值量。",
-    evidence: "已有业务底盘，关注 AI 产品结构、产能和客户认证。",
-    next: "AI 产品占比 / 产能爬坡 / 产品 ASP",
-    risk: "周期反转；供给扩张；客户结构变化。",
-    valuation: "用产品结构变化验证估值，而不是只看行业标签",
-  },
-];
+type InferenceModel = {
+  name: string;
+  subtitle: string;
+  asOf: string;
+  horizon: string[];
+  modelNote: string;
+  evidenceDimensions: EvidenceDimension[];
+  scenarios: Scenario[];
+  companies: CompanyModel[];
+};
 
-const quoteMap = new Map<string, SnapshotQuote>(marketSnapshot.quotes.map((quote) => [quote.code, quote as SnapshotQuote]));
-const liveCompanies = companies.map((company) => ({ ...company, quote: quoteMap.get(company.code) }));
+const model = inferenceModel as InferenceModel;
+const quotes = new Map<string, Quote>(marketSnapshot.quotes.map((quote) => [quote.code, quote as Quote]));
 
-function formatPrice(quote?: SnapshotQuote) {
+function formatBillion(value: number) {
+  return `${value.toLocaleString("zh-CN")}亿`;
+}
+
+function formatPrice(quote?: Quote) {
   return quote?.price == null ? "--" : `¥${quote.price.toFixed(2)}`;
 }
 
-function formatChange(quote?: SnapshotQuote) {
-  if (quote?.changePct == null) return "暂无行情";
+function formatChange(quote?: Quote) {
+  if (quote?.changePct == null) return "--";
   return `${quote.changePct >= 0 ? "+" : ""}${quote.changePct.toFixed(2)}%`;
 }
 
-function quoteTone(quote?: SnapshotQuote) {
-  if (quote?.changePct == null) return "flat";
-  return quote.changePct >= 0 ? "up" : "down";
+function formatPE(quote?: Quote) {
+  return quote?.peTTM == null ? "--" : `${quote.peTTM.toFixed(1)}x`;
 }
 
-const hypotheses = [
-  { id: "H-01", label: "AI 推理需求继续增长", chain: "AGI 算力链", progress: 72, status: "已强化", signal: "全球资本开支与推理基础设施仍是领先指标" },
-  { id: "H-02", label: "电力、散热、互联成为新瓶颈", chain: "AGI 算力链", progress: 66, status: "部分验证", signal: "关注液冷、HVDC、高速互联的订单和交付" },
-  { id: "H-03", label: "工业 AI 先于通用智能兑现 ROI", chain: "工业 AI", progress: 58, status: "验证中", signal: "看客户回本周期、续单和软件/硬件收入" },
-  { id: "H-04", label: "机器人先在受控场景实现量产", chain: "物理 AI", progress: 44, status: "待验证", signal: "订单之外必须观察成功率、可靠性和单位经济性" },
-  { id: "H-05", label: "力觉与灵巧操作提升部件价值量", chain: "物理 AI", progress: 38, status: "待验证", signal: "送样不等于量产，参数必须与成本和良率同时改善" },
-  { id: "H-06", label: "国产 AI 芯片形成稳定设计导入", chain: "国产算力", progress: 49, status: "验证中", signal: "设计导入 → 批量出货 → 软件生态是完整证据链" },
-];
+function getPriceTone(quote: Quote | undefined, targetPE: number): Tone {
+  if (!quote?.peTTM) return "neutral";
+  const multiple = quote.peTTM / targetPE;
+  if (multiple >= 2.5) return "negative";
+  if (multiple >= 1.25) return "warm";
+  return "positive";
+}
 
-const discoveries = [
-  { name: "兆威机电", code: "003021", direction: "灵巧手 / 微型传动", tag: "Serenity 雷达", detail: "需要核验客户、单机价值量和量产节奏" },
-  { name: "双环传动", code: "002472", direction: "精密传动 / 机器人", tag: "候选", detail: "关注扩产、认证和机器人收入占比" },
-  { name: "奥比中光", code: "688322", direction: "3D 视觉 / 感知", tag: "候选", detail: "关注真实场景部署和持续采购" },
-  { name: "麦格米特", code: "002851", direction: "电源 / 算力基础设施", tag: "待验证", detail: "关注客户结构、订单质量与毛利变化" },
-];
+function getPriceLabel(quote: Quote | undefined, targetPE: number) {
+  if (!quote?.peTTM) return "估值数据待接入";
+  const multiple = quote.peTTM / targetPE;
+  if (multiple >= 2.5) return "严重透支";
+  if (multiple >= 1.25) return "价格偏贵";
+  return "接近模型门槛";
+}
 
-const signalItems = [
-  { type: "硬信号", title: "大额订单", desc: "正式合同、交付周期、预付款、收入确认", color: "green" },
-  { type: "硬信号", title: "客户定点 / 量产", desc: "认证、批量交付、产能利用率和良率", color: "green" },
-  { type: "中信号", title: "参数突破", desc: "独立验证、端到端性能、可靠性和单位成本", color: "orange" },
-  { type: "中信号", title: "技术路线变化", desc: "客户 BOM、标准、产线或供应商体系发生变化", color: "orange" },
-  { type: "反向信号", title: "逻辑证伪", desc: "订单取消、替代路线、库存与应收恶化", color: "red" },
-];
+function Tag({ children, tone = "neutral" }: { children: ReactNode; tone?: Tone }) {
+  return <span className={`tag tag-${tone}`}>{children}</span>;
+}
 
-const chainCards = [
-  { name: "AGI 算力链", subtitle: "训练 · 推理 · 网络 · 电力", percent: 68, accent: "blue", companies: "中际旭创 · 英维克 · 沪电股份", status: "证据持续累积" },
-  { name: "物理 AI", subtitle: "感知 · 控制 · 执行 · 场景", percent: 43, accent: "orange", companies: "绿的谐波 · 柯力传感 · 兆威机电", status: "等待量产信号" },
-  { name: "工业 AI", subtitle: "自动化 · 机器视觉 · ROI", percent: 58, accent: "green", companies: "汇川技术 · 埃斯顿 · 奥比中光", status: "底盘先于期权" },
-  { name: "国产算力", subtitle: "芯片 · 软件生态 · 设计导入", percent: 49, accent: "purple", companies: "寒武纪 · 海光信息 · 中科曙光", status: "高弹性高验证" },
-];
-
-function StatusPill({ status }: { status: Status | string }) {
-  const tone = status.includes("兑现") || status.includes("强化") || status.includes("硬") ? "success" : status.includes("热") || status.includes("反") ? "danger" : status.includes("部分") ? "warm" : "muted";
-  return <span className={`status-pill ${tone}`}>{status}</span>;
+function Metric({ label, value, note, tone = "neutral" }: { label: string; value: string; note: string; tone?: Tone }) {
+  return (
+    <div className={`metric-card metric-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{note}</small>
+    </div>
+  );
 }
 
 export default function Home() {
-  const [sector, setSector] = useState<"全部" | Sector>("全部");
-  const [activeCompany, setActiveCompany] = useState<Company>(liveCompanies[0]);
-  const [saved, setSaved] = useState<string[]>([]);
-  const [signalFilter, setSignalFilter] = useState("全部");
+  const [view, setView] = useState<View>("mainline");
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState(model.evidenceDimensions[0].id);
+  const [selectedCompanyCode, setSelectedCompanyCode] = useState(model.companies[0].code);
 
-  const visibleCompanies = useMemo(() => sector === "全部" ? liveCompanies : liveCompanies.filter((company) => company.sector === sector), [sector]);
-  const visibleSignals = useMemo(() => signalFilter === "全部" ? signalItems : signalItems.filter((item) => item.type === signalFilter), [signalFilter]);
+  const selectedEvidence = model.evidenceDimensions.find((item) => item.id === selectedEvidenceId) ?? model.evidenceDimensions[0];
+  const selectedCompany = model.companies.find((item) => item.code === selectedCompanyCode) ?? model.companies[0];
+  const selectedQuote = quotes.get(selectedCompany.code);
+
+  const weightedMarket2027 = useMemo(
+    () => Math.round(model.scenarios.reduce((sum, scenario) => sum + scenario.market2027 * scenario.probability, 0) / 100),
+    [],
+  );
+  const weightedMarket2030 = useMemo(
+    () => Math.round(model.scenarios.reduce((sum, scenario) => sum + scenario.market2030 * scenario.probability, 0) / 100),
+    [],
+  );
+  const weightedProfitPool2030 = useMemo(
+    () => Math.round(model.scenarios.reduce((sum, scenario) => sum + scenario.profitPool2030 * scenario.probability, 0) / 100),
+    [],
+  );
+  const evidenceScore = Math.round(model.evidenceDimensions.reduce((sum, item) => sum + item.weight * item.probability, 0) / 100);
+  const minMarket2030 = Math.min(...model.scenarios.map((scenario) => scenario.market2030));
+  const maxMarket2030 = Math.max(...model.scenarios.map((scenario) => scenario.market2030));
+  const currentPE = selectedQuote?.peTTM ?? null;
+  const earningsMultiple = currentPE == null ? null : currentPE / selectedCompany.targetPE;
+  const impliedMarket2030 = earningsMultiple == null ? null : Math.round(weightedMarket2030 * earningsMultiple);
+  const priceTone = getPriceTone(selectedQuote, selectedCompany.targetPE);
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
+    <main className="research-shell">
+      <header className="research-topbar">
         <div className="brand-lockup">
-          <div className="brand-mark">A / I</div>
+          <div className="brand-mark">AI</div>
           <div>
             <div className="brand-name">AI 产业研究台</div>
-            <div className="brand-sub">AGI · Physical AI · A-SHARE</div>
+            <div className="brand-sub">EVIDENCE · MARKET · EARNINGS · PRICE</div>
           </div>
         </div>
-        <div className="topbar-meta">
-          <span className="live-dot" />
-          <span>研究快照 · 2026.07.13</span>
-          <span className="meta-divider" />
-          <span className="muted-copy">不做每日调仓，只更新证据</span>
-        </div>
-        <button className="search-button" aria-label="搜索研究内容"><span>⌕</span> 搜索</button>
+        <div className="topbar-center"><span className="live-dot" /> 当前主线 <b>{model.name}</b></div>
+        <div className="topbar-meta"><span>{marketSnapshot.source}</span><i /> <span>行情截至 {marketSnapshot.latestTradingDate ?? "待采集"}</span></div>
       </header>
 
-      <section className="hero-grid">
-        <div className="hero-copy">
-          <div className="eyebrow">CURRENT FOCUS / 01</div>
-          <h1>把高弹性机会，<br /><span>放进证据链里。</span></h1>
-          <p>固定选定池，持续观察关键假设；让大额订单、参数突破和路线落地成为可追踪的验证信号。</p>
-          <div className="hero-actions">
-            <button className="primary-action" onClick={() => document.getElementById("selected")?.scrollIntoView({ behavior: "smooth" })}>查看当前选定池 <span>↗</span></button>
-            <button className="text-action" onClick={() => document.getElementById("discoveries")?.scrollIntoView({ behavior: "smooth" })}>发现新机会 <span>→</span></button>
+      <div className="page-wrap">
+        <section className="model-hero">
+          <div className="hero-copy">
+            <div className="eyebrow">MAINLINE MODEL / 01</div>
+            <h1>{model.name}<br /><span>证据如何变成盈利？</span></h1>
+            <p>{model.subtitle}。这里不把“看好主线”直接等同于“可以买股票”，而是把每条证据映射到市场规模、利润池和公司盈利的具体变量。</p>
+            <div className="hero-tags"><Tag tone="positive">主线部分成立</Tag><Tag>5 个验证维度</Tag><Tag>2027E / 2030E</Tag></div>
           </div>
-        </div>
-        <div className="hero-card">
-          <div className="hero-card-header"><span>研究状态</span><StatusPill status="今日无调仓" /></div>
-          <div className="hero-stat-row">
-            <div><strong>07</strong><span>当前选定</span></div>
-            <div><strong>06</strong><span>关键假设</span></div>
-            <div><strong>04</strong><span>新发现</span></div>
-          </div>
-          <div className="confidence-line"><span>证据完整度</span><strong>61%</strong></div>
-          <div className="progress-track"><span style={{ width: "61%" }} /></div>
-          <div className="hero-card-note">今日重点：验证物理 AI 的量产信号，避免把送样和发布会当作收入兑现。</div>
-          <div className="source-status"><span className="source-dot" /><span>行情源 <b>{marketSnapshot.source}</b></span><small>{marketSnapshot.latestTradingDate ? `${marketSnapshot.latestTradingDate} 收盘` : "待采集"}</small></div>
-        </div>
-      </section>
-
-      <section className="alert-strip">
-        <div className="alert-icon">!</div>
-        <div><strong>估值纪律</strong><span>当前页面只记录研究判断；行情数据与公司公告接入后，所有“推荐状态”都必须同时通过业绩兑现和估值反推。</span></div>
-        <button onClick={() => document.getElementById("valuation")?.scrollIntoView({ behavior: "smooth" })}>查看规则 <span>→</span></button>
-      </section>
-
-      <section className="section-block" id="selected">
-        <div className="section-heading">
-          <div><div className="eyebrow">SELECTED UNIVERSE / 01</div><h2>当前选定池</h2></div>
-          <div className="section-heading-right"><span className="as-of">选定于 2026.07.13</span><span className="tiny-separator" /><span className="muted-copy">{marketSnapshot.source} · {marketSnapshot.latestTradingDate ?? "待采集"}</span></div>
-        </div>
-        <div className="selected-layout">
-          <div className="selected-table-wrap">
-            <div className="filter-row">
-              {(["全部", "算力", "工业AI", "物理AI", "芯片"] as const).map((item) => <button key={item} className={`filter-chip ${sector === item ? "active" : ""}`} onClick={() => setSector(item)}>{item}</button>)}
-            </div>
-            <div className="company-table">
-              <div className="table-head"><span>标的</span><span>产业角色</span><span>近期表现</span><span>假设状态</span><span>估值提醒</span></div>
-              {visibleCompanies.map((company) => <button key={company.code} className={`company-row ${activeCompany.code === company.code ? "selected" : ""}`} onClick={() => setActiveCompany(company)}>
-                <span className="company-name-cell"><b>{company.name}</b><small>{company.code}</small></span>
-                <span><i className={`sector-dot ${company.sector === "算力" ? "blue" : company.sector === "物理AI" ? "orange" : company.sector === "芯片" ? "purple" : "green"}`} />{company.role}</span>
-                <span className={`market-quote ${quoteTone(company.quote)}`}><b>{formatPrice(company.quote)}</b><small>{formatChange(company.quote)}</small></span>
-                <span><StatusPill status={company.status} /></span>
-                <span className="valuation-cell">{company.valuation}</span>
-              </button>)}
-            </div>
-          </div>
-          <aside className="company-detail">
-            <div className="detail-top"><span className="detail-label">FOCUS NOTE</span><span className="detail-code">{activeCompany.code}</span></div>
-            <h3>{activeCompany.name}<small>{activeCompany.role}</small></h3>
-            <div className="detail-market-line"><span>行情截至 {activeCompany.quote?.date ?? "待采集"}</span><strong className={quoteTone(activeCompany.quote)}>{formatPrice(activeCompany.quote)} · {formatChange(activeCompany.quote)}</strong></div>
-            <div className="detail-thesis">{activeCompany.thesis}</div>
-            <div className="detail-block"><span>最新证据</span><p>{activeCompany.evidence}</p></div>
-            <div className="detail-block"><span>下一验证点</span><p className="next-text">{activeCompany.next}</p></div>
-            <div className="detail-block"><span>证伪风险</span><p>{activeCompany.risk}</p></div>
-            <div className="detail-footer"><StatusPill status={activeCompany.status} /><span>点击左侧切换研究卡片</span></div>
+          <aside className="hero-model-card">
+            <div className="card-kicker">CURRENT MODEL READ</div>
+            <div className="model-read-title">需求和基础设施偏强，ROI 与价格仍是缺口</div>
+            <div className="read-row"><span>证据加权分</span><strong>{evidenceScore}<small>/100</small></strong></div>
+            <div className="score-track"><span style={{ width: `${evidenceScore}%` }} /></div>
+            <div className="read-foot"><span>模型截至 {model.asOf}</span><span>仅供研究</span></div>
           </aside>
-        </div>
-      </section>
+        </section>
 
-      <section className="section-block muted-section" id="hypotheses">
-        <div className="section-heading"><div><div className="eyebrow">HYPOTHESIS BOARD / 02</div><h2>关键假设达成情况</h2></div><span className="section-note">逻辑状态独立于股价表现</span></div>
-        <div className="hypothesis-grid">
-          {hypotheses.map((item) => <article className="hypothesis-card" key={item.id}>
-            <div className="hypothesis-top"><span>{item.id}</span><StatusPill status={item.status} /></div>
-            <h3>{item.label}</h3><small>{item.chain}</small>
-            <div className="hypothesis-progress"><span style={{ width: `${item.progress}%` }} /></div>
-            <div className="hypothesis-bottom"><strong>{item.progress}%</strong><p>{item.signal}</p></div>
-          </article>)}
-        </div>
-      </section>
+        <section className="decision-strip">
+          <Metric label="证据加权分" value={`${evidenceScore}/100`} note="不是市场规模的线性折扣" tone="warm" />
+          <Metric label="2027E 市场中值" value={formatBillion(weightedMarket2027)} note={`情景区间 ${formatBillion(Math.min(...model.scenarios.map((s) => s.market2027)))}—${formatBillion(Math.max(...model.scenarios.map((s) => s.market2027)))}`} tone="positive" />
+          <Metric label="2030E 市场中值" value={formatBillion(weightedMarket2030)} note={`情景区间 ${formatBillion(minMarket2030)}—${formatBillion(maxMarket2030)}`} tone="positive" />
+          <Metric label="2030E 利润池中值" value={formatBillion(weightedProfitPool2030)} note="行业利润池，不是单家公司利润" tone="neutral" />
+          <div className="decision-callout"><span>当前决策</span><strong>主线可跟踪，个股要看价格</strong><small>不做全产业链无差别买入</small></div>
+        </section>
 
-      <section className="section-block" id="chains">
-        <div className="section-heading"><div><div className="eyebrow">CHAIN MAP / 03</div><h2>产业链温度</h2></div><span className="section-note">按产业假设，而非股票数量计分</span></div>
-        <div className="chain-grid">
-          {chainCards.map((card) => <article className="chain-card" key={card.name}>
-            <div className="chain-card-head"><div><h3>{card.name}</h3><span>{card.subtitle}</span></div><span className={`chain-icon ${card.accent}`}>↗</span></div>
-            <div className="chain-meter"><span className={card.accent} style={{ width: `${card.percent}%` }} /></div>
-            <div className="chain-meta"><strong>{card.percent}%</strong><span>{card.status}</span></div>
-            <p>{card.companies}</p>
-          </article>)}
-        </div>
-      </section>
+        <section className="model-path" aria-label="研究模型链路">
+          {["需求", "商业化", "基础设施", "利润池", "公司估值"].map((item, index) => (
+            <div className="path-step" key={item}><span>0{index + 1}</span><strong>{item}</strong>{index < 4 && <i>→</i>}</div>
+          ))}
+        </section>
 
-      <section className="split-section" id="signals">
-        <div className="section-block signal-panel">
-          <div className="section-heading compact"><div><div className="eyebrow">SIGNAL DICTIONARY / 04</div><h2>今天搜索什么</h2></div><span className="section-note">硬信号优先</span></div>
-          <div className="signal-filter-row">{["全部", "硬信号", "中信号", "反向信号"].map((item) => <button key={item} className={signalFilter === item ? "active" : ""} onClick={() => setSignalFilter(item)}>{item}</button>)}</div>
-          <div className="signal-list">{visibleSignals.map((item) => <div className="signal-row" key={item.title}><span className={`signal-marker ${item.color}`} /><div><div className="signal-name"><b>{item.title}</b><span>{item.type}</span></div><p>{item.desc}</p></div><span className="signal-arrow">→</span></div>)}</div>
-        </div>
-        <div className="section-block serenity-panel">
-          <div className="section-heading compact"><div><div className="eyebrow">SERENITY RADAR / 05</div><h2>高弹性新发现</h2></div><span className="radar-live">● RADAR</span></div>
-          <p className="panel-intro">瓶颈、刚需、少数供应商、长扩产周期；进入选定池前仍需独立验证。</p>
-          <div className="discovery-list" id="discoveries">
-            {discoveries.map((item) => <div className="discovery-row" key={item.code}>
-              <div className="discovery-title"><b>{item.name}</b><small>{item.code} · {item.direction}</small></div><span className="discovery-tag">{item.tag}</span>
-              <p>{item.detail}</p>
-              <button className={saved.includes(item.code) ? "saved" : ""} onClick={() => setSaved((current) => current.includes(item.code) ? current.filter((code) => code !== item.code) : [...current, item.code])}>{saved.includes(item.code) ? "已加入候选" : "+ 加入候选"}</button>
-            </div>)}
+        <section className="workspace-section">
+          <div className="workspace-heading">
+            <div><div className="eyebrow">DECISION WORKSPACE / 02</div><h2>先验证主线，再验证公司</h2></div>
+            <div className="view-switch" role="tablist" aria-label="研究视图">
+              <button className={view === "mainline" ? "active" : ""} onClick={() => setView("mainline")} role="tab" aria-selected={view === "mainline"}>主线验证</button>
+              <button className={view === "companies" ? "active" : ""} onClick={() => setView("companies")} role="tab" aria-selected={view === "companies"}>公司验证</button>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <section className="valuation-section" id="valuation">
-        <div className="valuation-copy"><div className="eyebrow">VALUATION DISCIPLINE / 06</div><h2>逻辑越好，<br /><span>越要看价格要求什么。</span></h2><p>每个标的都要做基准、乐观、极乐观三种情景，反推当前市值隐含的收入、份额、毛利和产能。逻辑没有兑现前，估值透支就是风险。</p></div>
-        <div className="valuation-grid">
-          <div className="valuation-card"><span>01 / 未计入</span><strong>基本面领先价格</strong><p>证据在改善，市场尚未充分反映。</p></div>
-          <div className="valuation-card current"><span>02 / 部分计入</span><strong>继续观察</strong><p>逻辑正确，但需要业绩追上预期。</p></div>
-          <div className="valuation-card hot"><span>03 / 严重透支</span><strong>等待价格或业绩</strong><p>当前价格依赖极乐观情景才能成立。</p></div>
-        </div>
-      </section>
+          {view === "mainline" ? (
+            <>
+              <div className="evidence-grid">
+                {model.evidenceDimensions.map((item) => (
+                  <button key={item.id} className={`evidence-card ${selectedEvidence.id === item.id ? "selected" : ""}`} onClick={() => setSelectedEvidenceId(item.id)}>
+                    <div className="evidence-card-top"><span>{item.id}</span><Tag tone={item.tone}>{item.status}</Tag></div>
+                    <h3>{item.name}</h3>
+                    <div className="evidence-score-line"><strong>{item.probability}%</strong><span>权重 {item.weight}%</span></div>
+                    <div className="mini-track"><span className={`fill-${item.tone}`} style={{ width: `${item.probability}%` }} /></div>
+                    <p>{item.metric}</p>
+                  </button>
+                ))}
+              </div>
 
-      <footer className="footer"><div><b>AI 产业研究台</b><span>当前选定池 · 假设跟踪 · 新机会发现</span></div><div>研究原型 · 非个性化投资建议</div></footer>
+              <div className="evidence-inspector">
+                <div className="inspector-main">
+                  <div className="inspector-kicker">{selectedEvidence.id} / SELECTED EVIDENCE</div>
+                  <h3>{selectedEvidence.name}</h3>
+                  <p className="inspector-question">{selectedEvidence.question}</p>
+                  <div className="inspector-grid"><div><span>当前证据</span><p>{selectedEvidence.evidence}</p></div><div><span>模型影响</span><p className="impact-text">{selectedEvidence.impact}</p></div></div>
+                </div>
+                <div className="thresholds">
+                  <div className="threshold confirm"><span>证实条件</span><p>{selectedEvidence.confirm}</p></div>
+                  <div className="threshold falsify"><span>证伪条件</span><p>{selectedEvidence.falsify}</p></div>
+                </div>
+              </div>
+
+              <div className="quant-grid">
+                <section className="panel scenario-panel">
+                  <div className="panel-heading"><div><div className="eyebrow">SCENARIO MODEL / 03</div><h3>市场规模与利润池</h3></div><span className="unit-note">单位：亿元 / 年度</span></div>
+                  <div className="scenario-table">
+                    <div className="scenario-row scenario-head"><span>情景</span><span>概率</span><span>2027E 市场</span><span>2030E 市场</span><span>2030E 利润池</span></div>
+                    {model.scenarios.map((scenario) => <div className={`scenario-row scenario-${scenario.id}`} key={scenario.id}><span><b>{scenario.label}</b><small>{scenario.description}</small></span><strong>{scenario.probability}%</strong><span>{formatBillion(scenario.market2027)}</span><span>{formatBillion(scenario.market2030)}</span><span>{formatBillion(scenario.profitPool2030)}</span></div>)}
+                    <div className="scenario-row weighted-row"><span><b>证据加权中值</b><small>不是 3/5 直接折算，而是情景概率加权</small></span><strong>100%</strong><span>{formatBillion(weightedMarket2027)}</span><span>{formatBillion(weightedMarket2030)}</span><span>{formatBillion(weightedProfitPool2030)}</span></div>
+                  </div>
+                </section>
+                <aside className="panel decision-panel">
+                  <div className="eyebrow">DECISION NOTE / 04</div>
+                  <h3>主线成立，不等于所有公司都值得买。</h3>
+                  <p>当前模型对需求和瓶颈给出较高概率，但 ROI 和价格竞争仍压制利润池。配置顺序应当是：</p>
+                  <ol><li><b>先看</b>能把推理需求变成订单和现金流的环节；</li><li><b>再看</b>公司估值要求的市场规模是否超过乐观情景；</li><li><b>最后看</b>Serenity 的瓶颈、弹性和安全边际。</li></ol>
+                  <div className="decision-rule"><span>触发条件</span><strong>证据改善 + 价格低于证据中值</strong></div>
+                </aside>
+              </div>
+            </>
+          ) : (
+            <div className="company-workspace">
+              <div className="company-table-panel panel">
+                <div className="panel-heading"><div><div className="eyebrow">COMPANY BRIDGE / 05</div><h3>主线相关公司</h3></div><span className="unit-note">价格数据自动更新；盈利参数为模型输入</span></div>
+                <div className="company-table-head"><span>公司 / 角色</span><span>现价</span><span>PE / 门槛</span><span>证据分</span><span>价格要求规模</span><span>判断</span></div>
+                {model.companies.map((company) => {
+                  const quote = quotes.get(company.code);
+                  const multiple = quote?.peTTM == null ? null : quote.peTTM / company.targetPE;
+                  const implied = multiple == null ? null : Math.round(weightedMarket2030 * multiple);
+                  const tone = getPriceTone(quote, company.targetPE);
+                  return <button key={company.code} className={`company-table-row ${selectedCompany.code === company.code ? "selected" : ""}`} onClick={() => setSelectedCompanyCode(company.code)}>
+                    <span className="company-identity"><b>{company.name}</b><small>{company.code} · {company.role}</small><em>推理暴露 {company.exposure}%</em></span>
+                    <span className="quote-cell"><b>{formatPrice(quote)}</b><small className={quote?.changePct && quote.changePct >= 0 ? "up" : "down"}>{formatChange(quote)}</small></span>
+                    <span className="pe-cell"><b>{formatPE(quote)}</b><small>门槛 {company.targetPE}x</small></span>
+                    <span className="score-cell"><b>{company.evidenceScore}</b><small>/100</small></span>
+                    <span className="implied-cell"><b>{implied == null ? "待接入" : formatBillion(implied)}</b><small>基准中值 × PE倍数</small></span>
+                    <span><Tag tone={tone}>{getPriceLabel(quote, company.targetPE)}</Tag></span>
+                  </button>;
+                })}
+                <div className="table-footnote">价格要求规模是 PE 代理模型：2030E 证据中值 ×（当前 PE ÷ 目标 PE）。它不替代总股本、分部收入、净利率和 DCF，当前只用于快速发现估值透支。</div>
+              </div>
+
+              <aside className="company-inspector panel">
+                <div className="inspector-kicker">COMPANY MODEL / {selectedCompany.code}</div>
+                <div className="company-title-row"><div><h3>{selectedCompany.name}</h3><span>{selectedCompany.role}</span></div><Tag tone={priceTone}>{getPriceLabel(selectedQuote, selectedCompany.targetPE)}</Tag></div>
+                <p className="company-judgement">{selectedCompany.judgement}</p>
+                <div className="company-metrics"><div><span>当前价格</span><strong>{formatPrice(selectedQuote)}</strong></div><div><span>当前 PE</span><strong>{formatPE(selectedQuote)}</strong></div><div><span>证据分</span><strong>{selectedCompany.evidenceScore}<small>/100</small></strong></div></div>
+                <div className="earnings-bridge"><div className="bridge-title"><span>盈利桥</span><small>当前仍缺总股本 / 分部收入</small></div><div className="bridge-flow"><span>2030E 市场<br /><b>{formatBillion(weightedMarket2030)}</b></span><i>×</i><span>公司暴露<br /><b>{selectedCompany.exposure}%</b></span><i>→</i><span>公司收入<br /><b>待验证</b></span><i>→</i><span>净利润<br /><b>待验证</b></span></div></div>
+                <div className="price-reverse"><div className="reverse-heading"><span>价格反推</span><Tag tone="warm">简化代理</Tag></div><div className="reverse-main"><strong>{impliedMarket2030 == null ? "待接入 PE" : formatBillion(impliedMarket2030)}</strong><span>价格隐含的 2030E 主线规模</span></div><div className="reverse-compare"><span>证据情景区间</span><b>{formatBillion(minMarket2030)}—{formatBillion(maxMarket2030)}</b><em>{impliedMarket2030 != null && impliedMarket2030 > maxMarket2030 ? "高于乐观情景" : "尚未超过乐观情景"}</em></div></div>
+                <div className="company-evidence"><div className="bridge-title"><span>公司证据汇总</span><small>下一步：{selectedCompany.next}</small></div>{selectedCompany.evidence.map((item) => <div className="company-evidence-row" key={item.label}><span className={`evidence-dot dot-${item.tone}`} /><b>{item.label}</b><Tag tone={item.tone}>{item.status}</Tag></div>)}</div>
+              </aside>
+            </div>
+          )}
+        </section>
+
+        <section className="research-rules">
+          <div><div className="eyebrow">MODEL RULES / 06</div><h2>每条新信息都必须改变一个变量</h2><p>{model.modelNote}</p></div>
+          <div className="rule-grid"><div><span>市场规模</span><strong>需求 × 单价</strong><small>先做场景区间，再做概率加权</small></div><div><span>公司盈利</span><strong>相关市场 × 暴露 × 份额 × 利润率</strong><small>行业规模不能直接等于公司收入</small></div><div><span>投资动作</span><strong>证据概率 × 弹性 × 安全边际</strong><small>主线好但价格贵，结论仍可是不买</small></div></div>
+        </section>
+      </div>
+
+      <footer className="research-footer"><span><b>AI 产业研究台</b> · 主线验证 → 市场规模 → 公司盈利 → 估值反推</span><span>研究模型 · 非个性化投资建议</span></footer>
     </main>
   );
 }
