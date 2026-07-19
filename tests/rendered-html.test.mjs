@@ -20,11 +20,12 @@ test("server-renders the AI research dashboard", async () => {
 
   const html = await response.text();
   assert.match(html, /AI 产业研究台/);
-  assert.match(html, /当前选定池/);
-  assert.match(html, /关键假设达成情况/);
-  assert.match(html, /SERENITY RADAR/);
-  assert.match(html, /估值纪律/);
+  assert.match(html, /AI 推理产业链/);
+  assert.match(html, /证据如何变成盈利/);
+  assert.match(html, /5 个验证维度/);
+  assert.match(html, /2030E 市场中值/);
+  assert.match(html, /证据加权中值/);
+  assert.match(html, /主线成立，不等于所有公司都值得买/);
   assert.match(html, /Baostock/);
-  assert.match(html, /¥1,093\.98|¥1093\.98/);
   assert.doesNotMatch(html, /Your site is taking shape|codex-preview/);
 });
