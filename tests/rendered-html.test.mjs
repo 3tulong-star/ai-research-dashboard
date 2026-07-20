@@ -64,6 +64,9 @@ test("ships a real auditable scheduled research snapshot", async () => {
   ]);
   const workspace = JSON.parse(workspaceText);
   const encrypted = JSON.parse(await readFile(new URL("../data/research-snapshot.enc.json", import.meta.url), "utf8"));
+  const publicKey = await readFile(new URL("../config/research-public.pem", import.meta.url), "utf8");
+  assert.match(publicKey, /^-----BEGIN PUBLIC KEY-----/);
+  assert.doesNotMatch(publicKey, /PRIVATE KEY/);
   assert.equal(encrypted.algorithm, "RSA-OAEP-3072+AES-256-GCM");
   assert.ok(encrypted.generatedAt);
   assert.ok(encrypted.wrappedKey);

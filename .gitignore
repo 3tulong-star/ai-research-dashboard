@@ -21,6 +21,7 @@
 # misc
 .DS_Store
 *.pem
+!config/research-public.pem
 
 # debug
 npm-debug.log*
