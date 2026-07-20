@@ -1,5 +1,27 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1784526915742,
+      "tag": "0000_sad_nightshade",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784532550463,
+      "tag": "0001_dry_sister_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784535184409,
+      "tag": "0002_eminent_ben_parker",
+      "breakpoints": true
+    }
+  ]
 }

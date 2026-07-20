@@ -1,0 +1,59 @@
+name: Update encrypted research snapshot
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 17:31 Asia/Shanghai = 09:31 UTC, Monday through Friday.
+    - cron: "31 9 * * 1-5"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-encrypted-research
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate plaintext research snapshot in temporary storage
+        env:
+          RESEARCH_OUTPUT: /tmp/static-workspace.json
+        run: npm run research:run
+
+      - name: Validate and encrypt research snapshot
+        run: |
+          jq -e '.generatedAt and (.discoveryCandidates | length > 0) and (.snapshots | length > 0) and (.decisions | length > 0)' /tmp/static-workspace.json >/dev/null
+          node scripts/encrypt-research-snapshot.mjs /tmp/static-workspace.json data/research-snapshot.enc.json
+          rm -f /tmp/static-workspace.json
+
+      - name: Commit encrypted snapshot when changed
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/research-snapshot.enc.json
+          if git diff --cached --quiet; then
+            echo "Encrypted snapshot did not change."
+            exit 0
+          fi
+          git commit -m "chore(data): update encrypted research snapshot"
+          git push origin "HEAD:${TARGET_BRANCH}"
