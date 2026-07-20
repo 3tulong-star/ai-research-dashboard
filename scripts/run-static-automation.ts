@@ -41,8 +41,8 @@ function addException(company: Record<string, unknown> | null, stage: string, er
 async function main() {
   const discovery = await runMarketDiscovery();
   sourceLogs.push({
-    id: nextSourceId++, run_id: discoveryRunId, source: "Eastmoney via a-stock-data adapter",
-    endpoint: "push2.eastmoney.com/api/qt/clist/get", retrieved_at: discovery.retrievedAt,
+    id: nextSourceId++, run_id: discoveryRunId, source: discovery.sourceName,
+    endpoint: discovery.sourceEndpoint, retrieved_at: discovery.retrievedAt,
     status: "SUCCESS", row_count: discovery.scannedCount, raw_hash: discovery.rawHash, error: "",
   });
 
