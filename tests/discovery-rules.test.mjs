@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { scoreCandidate } from "../app/lib/discovery.ts";
 
@@ -28,4 +29,12 @@ test("overheated loss maker scores below a healthy peer",()=>{
   const healthy=scoreCandidate(base);
   const hot=scoreCandidate({...base,pe:-20,change60:180,changeYtd:260,turnover:28});
   assert.ok(healthy.total-hot.total>=20);
+});
+
+test("market discovery uses bounded serial requests with resilient backoff",async()=>{
+  const source=await readFile(new URL("../app/lib/discovery.ts",import.meta.url),"utf8");
+  assert.match(source,/retries=5/);
+  assert.match(source,/800\*\(2\*\*i\)/);
+  assert.match(source,/for\(const board of batch\)/);
+  assert.doesNotMatch(source,/Promise\.all\(batch\.map/);
 });
