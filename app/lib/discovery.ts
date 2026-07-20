@@ -19,7 +19,7 @@ const n=(v:unknown)=>Number.isFinite(Number(v))?Number(v):0;
 const clamp=(v:number,min=0,max=100)=>Math.max(min,Math.min(max,v));
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 
-async function fetchJson(params:Record<string,string>, retries=2) {
+async function fetchJson(params:Record<string,string>, retries=5) {
   const url=new URL(EM_URL); Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));
   let last="";
   for(let i=0;i<=retries;i++) {
@@ -30,7 +30,10 @@ async function fetchJson(params:Record<string,string>, retries=2) {
       const diff=json.data?.diff||[];
       const rows=Array.isArray(diff)?diff:Object.values(diff);
       return {rows,total:n(json.data?.total),url:url.toString()};
-    } catch(e) { last=e instanceof Error?e.message:String(e); if(i<retries) await sleep(450*(i+1)); }
+    } catch(e) {
+      last=e instanceof Error?e.message:String(e);
+      if(i<retries) await sleep(Math.min(12000,800*(2**i))+Math.floor(Math.random()*500));
+    }
   }
   throw new Error(`东财接口失败: ${last}`);
 }
@@ -99,8 +102,8 @@ export async function runMarketDiscovery() {
   const byCode=new Map<string,CandidateSeed>();
   for(let i=0;i<matched.length;i+=4) {
     const batch=matched.slice(i,i+4);
-    const results=await Promise.all(batch.map(async board=>({board,result:await fetchJson({pn:"1",pz:"100",po:"1",np:"1",fltt:"2",invt:"2",fid:"f20",fs:`b:${board.code}`,fields:"f2,f3,f6,f8,f9,f12,f14,f20,f21,f23,f24,f25,f100"})})));
-    for(const {board,result} of results) {
+    for(const board of batch) {
+      const result=await fetchJson({pn:"1",pz:"100",po:"1",np:"1",fltt:"2",invt:"2",fid:"f20",fs:`b:${board.code}`,fields:"f2,f3,f6,f8,f9,f12,f14,f20,f21,f23,f24,f25,f100"});
       sourceUrls.push(result.url);
       for(const x of result.rows) {
         const code=String(x.f12||""); if(!/^(00|30|60|68|83|87|92)/.test(code)) continue;
@@ -108,6 +111,7 @@ export async function runMarketDiscovery() {
         if(prior) { if(!prior.boards.some(b=>b.code===board.code)) prior.boards.push(board); continue; }
         byCode.set(code,{code,name:String(x.f14||""),industry:String(x.f100||""),price:n(x.f2),change:n(x.f3),amount:n(x.f6),turnover:n(x.f8),pe:n(x.f9),marketCap:n(x.f20),floatCap:n(x.f21),pb:n(x.f23),change60:n(x.f24),changeYtd:n(x.f25),boards:[board]});
       }
+      await sleep(220+Math.floor(Math.random()*180));
     }
     if(i+4<matched.length) await sleep(260);
   }
