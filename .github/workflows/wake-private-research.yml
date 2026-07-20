@@ -1,0 +1,86 @@
+name: Wake private Sites research
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 17:31 Asia/Shanghai = 09:31 UTC, Monday through Friday.
+    - cron: "31 9 * * 1-5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wake-private-sites-research
+  cancel-in-progress: false
+
+jobs:
+  wake-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      SITE_URL: ${{ secrets.SITES_URL }}
+      SITES_BYPASS_TOKEN: ${{ secrets.SITES_BYPASS_TOKEN }}
+
+    steps:
+      - name: Validate private endpoint configuration
+        shell: bash
+        run: |
+          if [[ -z "$SITE_URL" || -z "$SITES_BYPASS_TOKEN" ]]; then
+            echo "Required private Sites configuration is missing."
+            exit 1
+          fi
+
+      - name: Capture current automation run
+        id: baseline
+        shell: bash
+        run: |
+          curl --fail --silent --show-error \
+            --header "OAI-Sites-Authorization: $SITES_BYPASS_TOKEN" \
+            --output /tmp/status-before.json \
+            "$SITE_URL/api/status"
+          run_id="$(jq -r '.automation.id // 0' /tmp/status-before.json)"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wake the due-gated research pipeline
+        shell: bash
+        run: |
+          curl --fail --silent --show-error \
+            --header "OAI-Sites-Authorization: $SITES_BYPASS_TOKEN" \
+            --output /dev/null \
+            "$SITE_URL/"
+
+      - name: Wait for a terminal research result
+        shell: bash
+        env:
+          BASELINE_RUN_ID: ${{ steps.baseline.outputs.run_id }}
+        run: |
+          for attempt in $(seq 1 90); do
+            curl --fail --silent --show-error \
+              --header "OAI-Sites-Authorization: $SITES_BYPASS_TOKEN" \
+              --output /tmp/status.json \
+              "$SITE_URL/api/status"
+
+            run_id="$(jq -r '.automation.id // 0' /tmp/status.json)"
+            run_status="$(jq -r '.automation.status // "MISSING"' /tmp/status.json)"
+            exception_count="$(jq -r '.exceptions | length' /tmp/status.json)"
+
+            if [[ "$run_id" != "$BASELINE_RUN_ID" ]]; then
+              if [[ "$run_status" == "FAILED" ]]; then
+                echo "The production research run failed."
+                exit 1
+              fi
+              if [[ "$run_status" == "SUCCESS" ]]; then
+                if [[ "$exception_count" != "0" ]]; then
+                  echo "The production research run completed with unresolved exceptions."
+                  exit 1
+                fi
+                echo "The production research run completed successfully."
+                exit 0
+              fi
+            fi
+
+            sleep 30
+          done
+
+          echo "Timed out waiting for a new terminal research run."
+          exit 1
