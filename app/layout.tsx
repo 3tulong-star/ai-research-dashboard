@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./discovery.css";
 
 export const metadata: Metadata = {
-  title: "AI 产业研究台 · AGI & Physical AI",
-  description: "围绕 A 股选定池、产业假设、瓶颈雷达和估值透支的持续研究仪表盘。",
-  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+  title: "三本账 · AI 投资研究台",
+  description: "从证据收集、三本账研究到量化决策与复盘的完整投资研究系统。",
+  openGraph: { title: "三本账 · AI 投资研究台", description: "Evidence → Research → Decision" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -1,339 +1,118 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import marketSnapshot from "../data/market-snapshot.json";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
-type Status = "已兑现" | "部分验证" | "验证中" | "待验证" | "偏热";
-type Sector = "算力" | "工业AI" | "物理AI" | "芯片";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type Row = Record<string, any>;
+type Workspace = { companies: Row[]; evidence: Row[]; snapshots: Row[]; decisions: Row[]; reviews: Row[]; discoveryRuns:Row[]; discoveryCandidates:Row[]; sourceLogs:Row[]; automationRuns:Row[]; automationExceptions:Row[] };
+const empty: Workspace = { companies: [], evidence: [], snapshots: [], decisions: [], reviews: [], discoveryRuns:[], discoveryCandidates:[], sourceLogs:[], automationRuns:[], automationExceptions:[] };
+const tabs = ["总览", "自动发现", "标的库", "证据台", "三本账", "决策单", "复盘"];
 
-type SnapshotQuote = {
-  code: string;
-  name: string;
-  price: number | null;
-  changePct: number | null;
-  fiveDayChangePct: number | null;
-  turnoverPct: number | null;
-  peTTM: number | null;
-  pbMRQ: number | null;
-  date: string | null;
-  status: string;
-};
-
-type Company = {
-  code: string;
-  name: string;
-  sector: Sector;
-  role: string;
-  status: Status;
-  move: string;
-  tone: "up" | "down" | "flat";
-  thesis: string;
-  evidence: string;
-  next: string;
-  risk: string;
-  valuation: string;
-  quote?: SnapshotQuote;
-};
-
-const companies: Company[] = [
-  {
-    code: "300308",
-    name: "中际旭创",
-    sector: "算力",
-    role: "高速光互联",
-    status: "部分验证",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "AI 集群扩容继续推动高速光模块升级，供给与客户认证决定利润弹性。",
-    evidence: "已进入重点观察；订单、产品代际和产能利用率需要持续对照财报。",
-    next: "客户资本开支 / 高速产品出货 / 毛利率",
-    risk: "资本开支周期回落；价格竞争；技术路线切换。",
-    valuation: "需要反推 2027—2030 收入与利润",
-  },
-  {
-    code: "002837",
-    name: "英维克",
-    sector: "算力",
-    role: "液冷与温控",
-    status: "验证中",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "算力功耗上升使散热从配套升级为基础设施瓶颈。",
-    evidence: "瓶颈假设成立，但要验证 AI 数据中心收入占比和订单持续性。",
-    next: "液冷订单 / 机柜渗透率 / 交付与毛利",
-    risk: "客户自研；传统温控业务拖累；订单兑现慢。",
-    valuation: "警惕把远期液冷收入一次性计入",
-  },
-  {
-    code: "688017",
-    name: "绿的谐波",
-    sector: "物理AI",
-    role: "精密减速器",
-    status: "验证中",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "机器人关节放量时，具备认证壁垒的精密传动部件有较高单机弹性。",
-    evidence: "高弹性候选；需要把送样、定点和量产严格区分。",
-    next: "客户定点 / 量产交付 / ASP 与良率",
-    risk: "替代路线；客户压价；机器人放量低于预期。",
-    valuation: "不接受只由整机远期销量支撑的估值",
-  },
-  {
-    code: "300124",
-    name: "汇川技术",
-    sector: "工业AI",
-    role: "运动控制与自动化",
-    status: "已兑现",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "已有工控现金流提供底盘，AI 和机器人带来增量期权。",
-    evidence: "基本业务先验证，再观察 AI/机器人增量是否进入收入和利润。",
-    next: "工控景气 / 新产品收入 / 机器人客户进展",
-    risk: "制造业资本开支波动；AI 期权兑现慢。",
-    valuation: "用核心业务估值覆盖底盘，单独给期权估值",
-  },
-  {
-    code: "603662",
-    name: "柯力传感",
-    sector: "物理AI",
-    role: "力传感器",
-    status: "待验证",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "灵巧操作需要力觉闭环，六维力传感器可能是具身智能的关键接口。",
-    evidence: "方向弹性大，核心是客户认证、可靠性、量产良率和单机价值量。",
-    next: "样机到量产 / 客户数量 / 传感器 ASP",
-    risk: "路线替代；精度与可靠性不够；需求停留在样机。",
-    valuation: "必须看到收入曲线再提高估值权重",
-  },
-  {
-    code: "688256",
-    name: "寒武纪",
-    sector: "芯片",
-    role: "国产 AI 芯片",
-    status: "偏热",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "国产算力自主化带来高弹性，但真正决定价值的是持续供货和软件生态。",
-    evidence: "作为高弹性观察对象，不把政策、发布会或单一客户传闻当作兑现。",
-    next: "设计导入 / 规模出货 / 软件生态与毛利",
-    risk: "估值透支；产品迭代；客户集中；生态竞争。",
-    valuation: "重点做反向估值，不追逐单一预期",
-  },
-  {
-    code: "002463",
-    name: "沪电股份",
-    sector: "算力",
-    role: "高端 PCB",
-    status: "部分验证",
-    move: "行情待接入",
-    tone: "flat",
-    thesis: "AI 服务器和高速交换机提升高层数、高速 PCB 的价值量。",
-    evidence: "已有业务底盘，关注 AI 产品结构、产能和客户认证。",
-    next: "AI 产品占比 / 产能爬坡 / 产品 ASP",
-    risk: "周期反转；供给扩张；客户结构变化。",
-    valuation: "用产品结构变化验证估值，而不是只看行业标签",
-  },
+const validation = [
+  ["24月超额中位数", "+8.17pp", "good"], ["行动/拒绝价差", "+15.78pp", "good"],
+  ["正超额比例", "63.64%", "good"], ["永久损失比例", "5.45%", "good"],
 ];
 
-const quoteMap = new Map<string, SnapshotQuote>(marketSnapshot.quotes.map((quote) => [quote.code, quote as SnapshotQuote]));
-const liveCompanies = companies.map((company) => ({ ...company, quote: quoteMap.get(company.code) }));
-
-function formatPrice(quote?: SnapshotQuote) {
-  return quote?.price == null ? "--" : `¥${quote.price.toFixed(2)}`;
+function parse(value: string) { try { return JSON.parse(value); } catch { return []; } }
+function Field({ label, name, type="text", defaultValue, required=true }: { label:string; name:string; type?:string; defaultValue?:string|number; required?:boolean }) {
+  return <label className="field"><span>{label}</span><input name={name} type={type} defaultValue={defaultValue} required={required}/></label>;
 }
-
-function formatChange(quote?: SnapshotQuote) {
-  if (quote?.changePct == null) return "暂无行情";
-  return `${quote.changePct >= 0 ? "+" : ""}${quote.changePct.toFixed(2)}%`;
-}
-
-function quoteTone(quote?: SnapshotQuote) {
-  if (quote?.changePct == null) return "flat";
-  return quote.changePct >= 0 ? "up" : "down";
-}
-
-const hypotheses = [
-  { id: "H-01", label: "AI 推理需求继续增长", chain: "AGI 算力链", progress: 72, status: "已强化", signal: "全球资本开支与推理基础设施仍是领先指标" },
-  { id: "H-02", label: "电力、散热、互联成为新瓶颈", chain: "AGI 算力链", progress: 66, status: "部分验证", signal: "关注液冷、HVDC、高速互联的订单和交付" },
-  { id: "H-03", label: "工业 AI 先于通用智能兑现 ROI", chain: "工业 AI", progress: 58, status: "验证中", signal: "看客户回本周期、续单和软件/硬件收入" },
-  { id: "H-04", label: "机器人先在受控场景实现量产", chain: "物理 AI", progress: 44, status: "待验证", signal: "订单之外必须观察成功率、可靠性和单位经济性" },
-  { id: "H-05", label: "力觉与灵巧操作提升部件价值量", chain: "物理 AI", progress: 38, status: "待验证", signal: "送样不等于量产，参数必须与成本和良率同时改善" },
-  { id: "H-06", label: "国产 AI 芯片形成稳定设计导入", chain: "国产算力", progress: 49, status: "验证中", signal: "设计导入 → 批量出货 → 软件生态是完整证据链" },
-];
-
-const discoveries = [
-  { name: "兆威机电", code: "003021", direction: "灵巧手 / 微型传动", tag: "Serenity 雷达", detail: "需要核验客户、单机价值量和量产节奏" },
-  { name: "双环传动", code: "002472", direction: "精密传动 / 机器人", tag: "候选", detail: "关注扩产、认证和机器人收入占比" },
-  { name: "奥比中光", code: "688322", direction: "3D 视觉 / 感知", tag: "候选", detail: "关注真实场景部署和持续采购" },
-  { name: "麦格米特", code: "002851", direction: "电源 / 算力基础设施", tag: "待验证", detail: "关注客户结构、订单质量与毛利变化" },
-];
-
-const signalItems = [
-  { type: "硬信号", title: "大额订单", desc: "正式合同、交付周期、预付款、收入确认", color: "green" },
-  { type: "硬信号", title: "客户定点 / 量产", desc: "认证、批量交付、产能利用率和良率", color: "green" },
-  { type: "中信号", title: "参数突破", desc: "独立验证、端到端性能、可靠性和单位成本", color: "orange" },
-  { type: "中信号", title: "技术路线变化", desc: "客户 BOM、标准、产线或供应商体系发生变化", color: "orange" },
-  { type: "反向信号", title: "逻辑证伪", desc: "订单取消、替代路线、库存与应收恶化", color: "red" },
-];
-
-const chainCards = [
-  { name: "AGI 算力链", subtitle: "训练 · 推理 · 网络 · 电力", percent: 68, accent: "blue", companies: "中际旭创 · 英维克 · 沪电股份", status: "证据持续累积" },
-  { name: "物理 AI", subtitle: "感知 · 控制 · 执行 · 场景", percent: 43, accent: "orange", companies: "绿的谐波 · 柯力传感 · 兆威机电", status: "等待量产信号" },
-  { name: "工业 AI", subtitle: "自动化 · 机器视觉 · ROI", percent: 58, accent: "green", companies: "汇川技术 · 埃斯顿 · 奥比中光", status: "底盘先于期权" },
-  { name: "国产算力", subtitle: "芯片 · 软件生态 · 设计导入", percent: 49, accent: "purple", companies: "寒武纪 · 海光信息 · 中科曙光", status: "高弹性高验证" },
-];
-
-function StatusPill({ status }: { status: Status | string }) {
-  const tone = status.includes("兑现") || status.includes("强化") || status.includes("硬") ? "success" : status.includes("热") || status.includes("反") ? "danger" : status.includes("部分") ? "warm" : "muted";
-  return <span className={`status-pill ${tone}`}>{status}</span>;
+function SelectCompany({ rows }: { rows: Row[] }) {
+  return <label className="field"><span>标的</span><select name="companyId" required>{rows.map(c=><option key={c.id} value={c.id}>{c.name} · {c.ticker}</option>)}</select></label>;
 }
 
 export default function Home() {
-  const [sector, setSector] = useState<"全部" | Sector>("全部");
-  const [activeCompany, setActiveCompany] = useState<Company>(liveCompanies[0]);
-  const [saved, setSaved] = useState<string[]>([]);
-  const [signalFilter, setSignalFilter] = useState("全部");
+  const [active, setActive] = useState("总览");
+  const [data, setData] = useState<Workspace>(empty);
+  const [busy, setBusy] = useState(true);
+  const [message, setMessage] = useState("正在连接研究数据库…");
+  const [poolFilter,setPoolFilter]=useState("全部");
 
-  const visibleCompanies = useMemo(() => sector === "全部" ? liveCompanies : liveCompanies.filter((company) => company.sector === sector), [sector]);
-  const visibleSignals = useMemo(() => signalFilter === "全部" ? signalItems : signalItems.filter((item) => item.type === signalFilter), [signalFilter]);
+  async function load() {
+    setBusy(true);
+    const r = await fetch("/api/workspace"); const j = await r.json();
+    if (!r.ok) throw new Error(j.error || "读取失败");
+    setData(j); setMessage("数据已同步"); setBusy(false);
+  }
+  // Database synchronization is the external system this effect owns.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(()=>{ load().catch(e=>{setMessage(e.message);setBusy(false);}); },[]);
+  async function submit(action:string, event:FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setMessage("正在保存并记录审计轨迹…");
+    const form = new FormData(event.currentTarget); const payload:Row={action};
+    form.forEach((v,k)=>payload[k]=v); for(const k of ["tradable","dataComplete"]) payload[k]=form.has(k);
+    try { const r=await fetch("/api/workspace",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); const j=await r.json(); if(!r.ok)throw new Error(j.error); setData(j); setMessage("已保存 · "+new Date().toLocaleTimeString("zh-CN")); event.currentTarget.reset(); }
+    catch(e){setMessage(e instanceof Error?e.message:"保存失败");} finally{setBusy(false);}
+  }
+  const latest = useMemo(()=>data.decisions[0], [data]);
+  const latestAutomation = useMemo(()=>data.automationRuns[0], [data]);
+  const visibleCandidates=useMemo(()=>data.discoveryCandidates.filter(c=>poolFilter==="全部"||c.pool===poolFilter),[data,poolFilter]);
+  const coverage = data.companies.length ? Math.round(data.snapshots.length/data.companies.length*100) : 0;
 
-  return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="brand-lockup">
-          <div className="brand-mark">A / I</div>
-          <div>
-            <div className="brand-name">AI 产业研究台</div>
-            <div className="brand-sub">AGI · Physical AI · A-SHARE</div>
-          </div>
-        </div>
-        <div className="topbar-meta">
-          <span className="live-dot" />
-          <span>研究快照 · 2026.07.13</span>
-          <span className="meta-divider" />
-          <span className="muted-copy">不做每日调仓，只更新证据</span>
-        </div>
-        <button className="search-button" aria-label="搜索研究内容"><span>⌕</span> 搜索</button>
-      </header>
+  return <main>
+    <header className="topbar">
+      <div className="brand"><div className="mark">三</div><div><b>三本账 · AI 投资研究台</b><span>Evidence → Research → Decision</span></div></div>
+      <div className="status"><i className={busy?"pulse":""}/>{message}</div>
+    </header>
+    <nav>{tabs.map(t=><button key={t} className={active===t?"active":""} onClick={()=>setActive(t)}>{t}</button>)}</nav>
 
-      <section className="hero-grid">
-        <div className="hero-copy">
-          <div className="eyebrow">CURRENT FOCUS / 01</div>
-          <h1>把高弹性机会，<br /><span>放进证据链里。</span></h1>
-          <p>固定选定池，持续观察关键假设；让大额订单、参数突破和路线落地成为可追踪的验证信号。</p>
-          <div className="hero-actions">
-            <button className="primary-action" onClick={() => document.getElementById("selected")?.scrollIntoView({ behavior: "smooth" })}>查看当前选定池 <span>↗</span></button>
-            <button className="text-action" onClick={() => document.getElementById("discoveries")?.scrollIntoView({ behavior: "smooth" })}>发现新机会 <span>→</span></button>
-          </div>
-        </div>
-        <div className="hero-card">
-          <div className="hero-card-header"><span>研究状态</span><StatusPill status="今日无调仓" /></div>
-          <div className="hero-stat-row">
-            <div><strong>07</strong><span>当前选定</span></div>
-            <div><strong>06</strong><span>关键假设</span></div>
-            <div><strong>04</strong><span>新发现</span></div>
-          </div>
-          <div className="confidence-line"><span>证据完整度</span><strong>61%</strong></div>
-          <div className="progress-track"><span style={{ width: "61%" }} /></div>
-          <div className="hero-card-note">今日重点：验证物理 AI 的量产信号，避免把送样和发布会当作收入兑现。</div>
-          <div className="source-status"><span className="source-dot" /><span>行情源 <b>{marketSnapshot.source}</b></span><small>{marketSnapshot.latestTradingDate ? `${marketSnapshot.latestTradingDate} 收盘` : "待采集"}</small></div>
-        </div>
-      </section>
+    {active==="总览" && <section className="page">
+      <div className="hero">
+        <div><span className="eyebrow">REENTRY-0.7A · SIGNAL VALIDATED</span><h1>AI先找标的，<br/>证据与数字决定去留。</h1><p>全市场扫描负责发现，三本账负责研究，冻结闸门负责决策。热度只能产生线索，不能直接产生买入建议。</p><button className="primary" onClick={()=>setActive("自动发现")}>运行全市场扫描 →</button></div>
+        <div className="gate-card"><span>冻结决策闸门</span><strong>P(正超额) ≥ 55%</strong><strong>24M 超额 ≥ 10pp</strong><strong>P(永久损失) ≤ 10%</strong><strong>ST / 停牌 / 缺数 = 否决</strong></div>
+      </div>
+      <div className="metrics">{validation.map(([a,b,c])=><div className="metric" key={a}><span>{a}</span><b className={c}>{b}</b><small>历史盲测 · 55次行动</small></div>)}</div>
+      <div className="grid2">
+        <article className="panel"><div className="panel-title"><div><span>PIPELINE</span><h2>收集—研究—决策闭环</h2></div><em>{coverage}% 快照覆盖</em></div>
+          <div className="pipeline six">{[["01","发现",data.discoveryCandidates.length],["02","标的",data.companies.length],["03","证据",data.evidence.length],["04","三本账",data.snapshots.length],["05","决策",data.decisions.length],["06","复盘",data.reviews.length]].map(([n,l,v])=><div key={String(n)}><i>{n}</i><span>{l}</span><b>{v}</b></div>)}</div>
+        </article>
+        <article className="panel"><div className="panel-title"><div><span>LATEST DECISION</span><h2>最近一次决策</h2></div></div>
+          {latest?<div className="latest"><div className={`verdict ${latest.verdict}`}>{latest.verdict}</div><h3>{latest.company_name} <small>{latest.ticker}</small></h3><p>综合评分 {latest.score} / 100</p><div className="chips">{parse(latest.reasons_json).slice(0,3).map((x:string)=><span key={x}>{x}</span>)}</div></div>:<div className="blank">尚无决策。先录入三本账快照，再让系统执行冻结规则。</div>}
+        </article>
+      </div>
+      <article className="panel"><div className="panel-title"><div><span>FOCUS LIST</span><h2>重点研究队列</h2></div><button className="ghost" onClick={()=>setActive("标的库")}>管理标的</button></div><div className="table"><div className="tr head"><span>标的</span><span>行业</span><span>类型</span><span>状态</span></div>{data.companies.map(c=><div className="tr" key={c.id}><span><b>{c.name}</b><small>{c.ticker}</small></span><span>{c.sector}</span><span>{c.category}</span><span><i className="tag">{c.status}</i></span></div>)}</div></article>
+    </section>}
 
-      <section className="alert-strip">
-        <div className="alert-icon">!</div>
-        <div><strong>估值纪律</strong><span>当前页面只记录研究判断；行情数据与公司公告接入后，所有“推荐状态”都必须同时通过业绩兑现和估值反推。</span></div>
-        <button onClick={() => document.getElementById("valuation")?.scrollIntoView({ behavior: "smooth" })}>查看规则 <span>→</span></button>
-      </section>
+    {active==="自动发现" && <section className="page"><PageHead k="MARKET DISCOVERY" title="AI 全市场发现" desc="从A股概念板块自动建立AI产业候选池。题材与行情只负责发现，进入研究池后仍需补齐A/B级证据和三本账。"/>
+      <div className="discovery-hero"><article className="panel run-panel"><span className="eyebrow">UNATTENDED PIPELINE</span><h2>系统按计划自动研究</h2><p>每个交易日收盘后自动扫描全市场、分散晋级候选、抓取财报和官方公告、冻结三本账并生成影子决策。你只处理异常，不再逐项填表。</p><form onSubmit={e=>submit("runAutomation",e)}><button className="primary" disabled={busy}>{busy?"流水线运行或同步中…":"立即补跑一次"}</button></form></article>
+        <article className="panel run-status"><span>LATEST AUTOMATION</span>{latestAutomation?<><strong className={latestAutomation.status==="SUCCESS"?"good":"bad"}>{latestAutomation.status} · {latestAutomation.stage}</strong><div><b>{latestAutomation.promoted_count||0}</b><small>自动晋级</small><b>{latestAutomation.snapshot_count||0}</b><small>三本账</small><b>{latestAutomation.exception_count||0}</b><small>待处理异常</small></div><p>{latestAutomation.completed_at||latestAutomation.started_at} · {latestAutomation.model_version}</p></>:<div className="blank">定时任务尚未产生第一批完整运行记录。</div>}</article>
+      </div>
+      <article className="panel"><div className="panel-title"><div><span>EXCEPTION ONLY</span><h2>只需人工处理这些异常</h2></div><em>{data.automationExceptions.length} 条未解决</em></div>{data.automationExceptions.length?<div className="table"><div className="tr five head"><span>标的</span><span>阶段</span><span>级别</span><span>问题</span><span>可重试</span></div>{data.automationExceptions.map(x=><div className="tr five" key={x.id}><span><b>{x.company_name||"全局"}</b><small>运行 #{x.run_id}</small></span><span>{x.stage}</span><span>{x.severity}</span><span>{x.message}</span><span>{x.retryable?"是":"否"}</span></div>)}</div>:<div className="blank">当前没有未解决异常。</div>}</article>
+      <article className="panel"><div className="panel-title"><div><span>FROZEN DISCOVERY MODEL · 0.1</span><h2>发现评分与硬否决</h2></div></div><div className="weights">{[["主题相关",20],["主营相关",20],["流动性",15],["估值",15],["趋势不过热",10],["板块广度",10],["规模",5],["风险",5]].map(([x,w])=><div key={String(x)}><span>{x}</span><b>{w}%</b></div>)}</div><p className="method-note">硬否决：ST/退市风险、无有效价格、成交额低于5,000万元、总市值低于20亿元。主营行业不相关的“蹭概念”公司会被显著降级；负利润和过热行情扣分，但不会被伪装成绝对真理。</p></article>
+      <div className="candidate-toolbar"><div>{["全部","深度研究池","AI候选池","全市场观察池","风险淘汰池"].map(x=><button className={poolFilter===x?"active":""} key={x} onClick={()=>setPoolFilter(x)}>{x}<small>{x==="全部"?data.discoveryCandidates.length:data.discoveryCandidates.filter(c=>c.pool===x).length}</small></button>)}</div><span>按总分排序 · 同批次横向比较</span></div>
+      <div className="candidate-list">{visibleCandidates.map(c=><article key={c.id} className="candidate"><div className="rank">#{String(c.rank).padStart(2,"0")}</div><div className="candidate-main"><div><i className={`pool ${c.pool}`}>{c.pool}</i><span>{c.primary_chain}</span></div><h2>{c.name}<small>{c.code}</small></h2><div className="theme-row">{parse(c.themes_json).slice(0,4).map((x:string)=><span key={x}>{x}</span>)}</div><p>{c.pool==="风险淘汰池"?parse(c.vetoes_json).join("；"):parse(c.reasons_json)[0]}</p></div><div className="score-stack"><strong>{c.total_score}</strong><span>发现总分</span><div><b>主题 {Math.round(c.theme_score)}</b><b>估值 {Math.round(c.valuation_score)}</b><b>趋势 {Math.round(c.momentum_score)}</b></div></div><div className="market-facts"><span>PE<b>{c.pe>0?Number(c.pe).toFixed(1):"亏损"}</b></span><span>PB<b>{Number(c.pb).toFixed(1)}</b></span><span>60日<b className={c.change_60d>70?"bad":""}>{c.change_60d}%</b></span><span>市值<b>{Math.round(c.market_cap/1e8)}亿</b></span></div><form onSubmit={e=>submit("promoteCandidate",e)}><input type="hidden" name="candidateId" value={c.id}/><button className="ghost" disabled={c.pool==="风险淘汰池"}>进入研究池 →</button></form></article>)}</div>
+      {!visibleCandidates.length&&<div className="blank">当前筛选下没有候选；先运行一次全市场扫描。</div>}
+      <article className="panel source-audit"><div><span>SOURCE AUDIT</span><h2>数据源审计</h2></div>{data.sourceLogs.map(s=><p key={s.id}><i className={s.status==="SUCCESS"?"good":"bad"}>{s.status}</i><b>{s.source}</b><span>{s.endpoint}</span><small>{s.retrieved_at} · {String(s.raw_hash||"").slice(0,16)}…</small></p>)}</article>
+    </section>}
 
-      <section className="section-block" id="selected">
-        <div className="section-heading">
-          <div><div className="eyebrow">SELECTED UNIVERSE / 01</div><h2>当前选定池</h2></div>
-          <div className="section-heading-right"><span className="as-of">选定于 2026.07.13</span><span className="tiny-separator" /><span className="muted-copy">{marketSnapshot.source} · {marketSnapshot.latestTradingDate ?? "待采集"}</span></div>
-        </div>
-        <div className="selected-layout">
-          <div className="selected-table-wrap">
-            <div className="filter-row">
-              {(["全部", "算力", "工业AI", "物理AI", "芯片"] as const).map((item) => <button key={item} className={`filter-chip ${sector === item ? "active" : ""}`} onClick={() => setSector(item)}>{item}</button>)}
-            </div>
-            <div className="company-table">
-              <div className="table-head"><span>标的</span><span>产业角色</span><span>近期表现</span><span>假设状态</span><span>估值提醒</span></div>
-              {visibleCompanies.map((company) => <button key={company.code} className={`company-row ${activeCompany.code === company.code ? "selected" : ""}`} onClick={() => setActiveCompany(company)}>
-                <span className="company-name-cell"><b>{company.name}</b><small>{company.code}</small></span>
-                <span><i className={`sector-dot ${company.sector === "算力" ? "blue" : company.sector === "物理AI" ? "orange" : company.sector === "芯片" ? "purple" : "green"}`} />{company.role}</span>
-                <span className={`market-quote ${quoteTone(company.quote)}`}><b>{formatPrice(company.quote)}</b><small>{formatChange(company.quote)}</small></span>
-                <span><StatusPill status={company.status} /></span>
-                <span className="valuation-cell">{company.valuation}</span>
-              </button>)}
-            </div>
-          </div>
-          <aside className="company-detail">
-            <div className="detail-top"><span className="detail-label">FOCUS NOTE</span><span className="detail-code">{activeCompany.code}</span></div>
-            <h3>{activeCompany.name}<small>{activeCompany.role}</small></h3>
-            <div className="detail-market-line"><span>行情截至 {activeCompany.quote?.date ?? "待采集"}</span><strong className={quoteTone(activeCompany.quote)}>{formatPrice(activeCompany.quote)} · {formatChange(activeCompany.quote)}</strong></div>
-            <div className="detail-thesis">{activeCompany.thesis}</div>
-            <div className="detail-block"><span>最新证据</span><p>{activeCompany.evidence}</p></div>
-            <div className="detail-block"><span>下一验证点</span><p className="next-text">{activeCompany.next}</p></div>
-            <div className="detail-block"><span>证伪风险</span><p>{activeCompany.risk}</p></div>
-            <div className="detail-footer"><StatusPill status={activeCompany.status} /><span>点击左侧切换研究卡片</span></div>
-          </aside>
-        </div>
-      </section>
+    {active==="标的库" && <section className="page"><PageHead k="RESEARCH UNIVERSE" title="研究标的库" desc="默认由AI发现系统送入；人工入口只用于补充漏网标的和ETF。"/>
+      <div className="grid2"><article className="panel"><h2>人工补充标的</h2><form onSubmit={e=>submit("addCompany",e)} className="form-grid"><Field label="代码" name="ticker" defaultValue=""/><Field label="名称" name="name"/><Field label="行业" name="sector"/><label className="field"><span>类型</span><select name="category"><option>个股</option><option>ETF</option></select></label><label className="field wide"><span>为什么自动扫描可能遗漏它</span><textarea name="thesis" required/></label><button className="primary wide">人工补充</button></form></article><article className="panel note"><span className="eyebrow">规则</span><h2>发现不等于推荐</h2><p>自动入池只代表值得研究。数据适配器记录为C级线索；必须补充公告、财报等A/B级证据，完成三本账后才有资格进入决策。</p></article></div>
+      <article className="panel"><div className="table"><div className="tr five head"><span>标的</span><span>行业</span><span>研究假设</span><span>证据</span><span>状态</span></div>{data.companies.map(c=><div className="tr five" key={c.id}><span><b>{c.name}</b><small>{c.ticker}</small></span><span>{c.sector}</span><span>{c.thesis}</span><span>{data.evidence.filter(e=>e.company_id===c.id).length} 条</span><span><i className="tag">{c.status}</i></span></div>)}</div></article>
+    </section>}
 
-      <section className="section-block muted-section" id="hypotheses">
-        <div className="section-heading"><div><div className="eyebrow">HYPOTHESIS BOARD / 02</div><h2>关键假设达成情况</h2></div><span className="section-note">逻辑状态独立于股价表现</span></div>
-        <div className="hypothesis-grid">
-          {hypotheses.map((item) => <article className="hypothesis-card" key={item.id}>
-            <div className="hypothesis-top"><span>{item.id}</span><StatusPill status={item.status} /></div>
-            <h3>{item.label}</h3><small>{item.chain}</small>
-            <div className="hypothesis-progress"><span style={{ width: `${item.progress}%` }} /></div>
-            <div className="hypothesis-bottom"><strong>{item.progress}%</strong><p>{item.signal}</p></div>
-          </article>)}
-        </div>
-      </section>
+    {active==="证据台" && <section className="page"><PageHead k="EVIDENCE LEDGER" title="证据台" desc="所有信息源、发布日期、立场和判断类型都必须留痕。"/>
+      <article className="panel"><form onSubmit={e=>submit("addEvidence",e)} className="form-grid three"><SelectCompany rows={data.companies}/><Field label="证据标题" name="title"/><Field label="发布日期" name="publishedAt" type="date" defaultValue={new Date().toISOString().slice(0,10)}/><Field label="原始来源 URL" name="sourceUrl" type="url" required={false}/><label className="field"><span>来源等级</span><select name="sourceGrade"><option>A · 公告/监管/原始数据</option><option>B · 权威媒体/机构</option><option>C · 二手观点</option></select></label><label className="field"><span>证据类型</span><select name="evidenceType"><option>事实</option><option>估计</option><option>判断</option><option>情景</option></select></label><label className="field"><span>立场</span><select name="stance"><option>支持</option><option>反对</option><option>中性</option></select></label><label className="field wide"><span>摘录与备注</span><textarea name="notes"/></label><button className="primary">保存证据</button></form></article>
+      <article className="panel"><div className="table"><div className="tr five head"><span>标的 / 日期</span><span>证据</span><span>等级</span><span>立场</span><span>来源</span></div>{data.evidence.map(e=><div className="tr five" key={e.id}><span><b>{e.company_name}</b><small>{e.published_at}</small></span><span>{e.title}</span><span>{e.source_grade}</span><span><i className={`tag ${e.stance}`}>{e.stance}</i></span><span>{e.source_url?<a href={e.source_url} target="_blank">原文 ↗</a>:"未附链接"}</span></div>)}</div></article>
+    </section>}
 
-      <section className="section-block" id="chains">
-        <div className="section-heading"><div><div className="eyebrow">CHAIN MAP / 03</div><h2>产业链温度</h2></div><span className="section-note">按产业假设，而非股票数量计分</span></div>
-        <div className="chain-grid">
-          {chainCards.map((card) => <article className="chain-card" key={card.name}>
-            <div className="chain-card-head"><div><h3>{card.name}</h3><span>{card.subtitle}</span></div><span className={`chain-icon ${card.accent}`}>↗</span></div>
-            <div className="chain-meter"><span className={card.accent} style={{ width: `${card.percent}%` }} /></div>
-            <div className="chain-meta"><strong>{card.percent}%</strong><span>{card.status}</span></div>
-            <p>{card.companies}</p>
-          </article>)}
-        </div>
-      </section>
+    {active==="三本账" && <section className="page"><PageHead k="THREE LEDGERS" title="三本账研究快照" desc="财务事实、产业质量、市场定价必须在同一时点冻结，避免事后改口径。"/>
+      <form onSubmit={e=>submit("saveSnapshot",e)} className="ledger-form"><article className="panel"><h2><i>01</i> 财务账</h2><SelectCompany rows={data.companies}/><Field label="报告期" name="period" defaultValue="2026Q2"/><Field label="营收同比 %" name="revenueGrowth" type="number" defaultValue="20"/><Field label="利润率趋势 pp" name="marginTrend" type="number" defaultValue="2"/><Field label="现金流质量 0-100" name="cfoQuality" type="number" defaultValue="70"/><Field label="存货-收入增速差 pp" name="inventoryGap" type="number" defaultValue="0"/><Field label="资产负债率 %" name="debtRatio" type="number" defaultValue="35"/></article>
+      <article className="panel"><h2><i>02</i> 产业与公司账</h2><Field label="行业景气 0-100" name="industryScore" type="number" defaultValue="70"/><Field label="护城河 0-100" name="moatScore" type="number" defaultValue="70"/><Field label="催化剂 0-100" name="catalystScore" type="number" defaultValue="65"/><Field label="正超额概率 %" name="positiveProbability" type="number" defaultValue="55"/><Field label="预期24月超额 pp" name="expectedExcess" type="number" defaultValue="10"/><Field label="永久损失概率 %" name="permanentLossProbability" type="number" defaultValue="10"/></article>
+      <article className="panel"><h2><i>03</i> 估值与市场账</h2><Field label="估值历史分位 %" name="valuationPercentile" type="number" defaultValue="60"/><Field label="距高点回撤 %" name="drawdown" type="number" defaultValue="-10"/><Field label="年化波动率 %" name="volatility" type="number" defaultValue="35"/><label className="check"><input type="checkbox" name="tradable" defaultChecked/> 非 ST、非停牌且可交易</label><label className="check"><input type="checkbox" name="dataComplete" defaultChecked/> 关键数据完整</label><div className="rulebox">保存的是“当时可知”的数据，不允许使用未来信息。录入后到决策单执行规则。</div><button className="primary">冻结研究快照</button></article></form>
+      <article className="panel"><div className="table"><div className="tr five head"><span>标的 / 期次</span><span>正超额概率</span><span>预期超额</span><span>永久损失</span><span>估值分位</span></div>{data.snapshots.map(s=><div className="tr five" key={s.id}><span><b>{s.company_name}</b><small>{s.period}</small></span><span>{s.positive_probability}%</span><span>{s.expected_excess}pp</span><span>{s.permanent_loss_probability}%</span><span>{s.valuation_percentile}%</span></div>)}</div></article>
+    </section>}
 
-      <section className="split-section" id="signals">
-        <div className="section-block signal-panel">
-          <div className="section-heading compact"><div><div className="eyebrow">SIGNAL DICTIONARY / 04</div><h2>今天搜索什么</h2></div><span className="section-note">硬信号优先</span></div>
-          <div className="signal-filter-row">{["全部", "硬信号", "中信号", "反向信号"].map((item) => <button key={item} className={signalFilter === item ? "active" : ""} onClick={() => setSignalFilter(item)}>{item}</button>)}</div>
-          <div className="signal-list">{visibleSignals.map((item) => <div className="signal-row" key={item.title}><span className={`signal-marker ${item.color}`} /><div><div className="signal-name"><b>{item.title}</b><span>{item.type}</span></div><p>{item.desc}</p></div><span className="signal-arrow">→</span></div>)}</div>
-        </div>
-        <div className="section-block serenity-panel">
-          <div className="section-heading compact"><div><div className="eyebrow">SERENITY RADAR / 05</div><h2>高弹性新发现</h2></div><span className="radar-live">● RADAR</span></div>
-          <p className="panel-intro">瓶颈、刚需、少数供应商、长扩产周期；进入选定池前仍需独立验证。</p>
-          <div className="discovery-list" id="discoveries">
-            {discoveries.map((item) => <div className="discovery-row" key={item.code}>
-              <div className="discovery-title"><b>{item.name}</b><small>{item.code} · {item.direction}</small></div><span className="discovery-tag">{item.tag}</span>
-              <p>{item.detail}</p>
-              <button className={saved.includes(item.code) ? "saved" : ""} onClick={() => setSaved((current) => current.includes(item.code) ? current.filter((code) => code !== item.code) : [...current, item.code])}>{saved.includes(item.code) ? "已加入候选" : "+ 加入候选"}</button>
-            </div>)}
-          </div>
-        </div>
-      </section>
+    {active==="决策单" && <section className="page"><PageHead k="DECISION ENGINE" title="决策单" desc="评分用于排序，四道冻结闸门决定是否有资格进入组合。"/>
+      <div className="grid2"><article className="panel"><h2>执行冻结规则</h2>{data.snapshots.length?<form onSubmit={e=>submit("makeDecision",e)}><label className="field"><span>选择研究快照</span><select name="snapshotId">{data.snapshots.map(s=><option value={s.id} key={s.id}>{s.company_name} · {s.period} · P+ {s.positive_probability}%</option>)}</select></label><button className="primary full">生成并锁定决策</button></form>:<div className="blank">请先录入一份三本账快照。</div>}</article><article className="panel gate-list"><h2>绝对数字标尺</h2><p><b>①</b><span>正超额概率</span><strong>≥ 55%</strong></p><p><b>②</b><span>24个月预期超额</span><strong>≥ 10pp</strong></p><p><b>③</b><span>永久损失概率</span><strong>≤ 10%</strong></p><p><b>④</b><span>交易与数据完整性</span><strong>必须通过</strong></p></article></div>
+      <div className="decision-grid">{data.decisions.map(d=>{const reasons=parse(d.reasons_json),risk=parse(d.risk_json);return <article className="decision" key={d.id}><div><span>{d.created_at}</span><i className={`verdict ${d.verdict}`}>{d.verdict}</i></div><h2>{d.company_name}<small>{d.ticker}</small></h2><div className="score"><b>{d.score}</b><span>/100<br/>综合排序分</span></div><ul>{reasons.map((x:string)=><li key={x}>{x}</li>)}</ul><footer>建议初始仓位 <b>{risk.initialPositionPct}%</b> · 价格复核闸门 {risk.reviewDrawdownPct}%</footer></article>})}</div>
+    </section>}
 
-      <section className="valuation-section" id="valuation">
-        <div className="valuation-copy"><div className="eyebrow">VALUATION DISCIPLINE / 06</div><h2>逻辑越好，<br /><span>越要看价格要求什么。</span></h2><p>每个标的都要做基准、乐观、极乐观三种情景，反推当前市值隐含的收入、份额、毛利和产能。逻辑没有兑现前，估值透支就是风险。</p></div>
-        <div className="valuation-grid">
-          <div className="valuation-card"><span>01 / 未计入</span><strong>基本面领先价格</strong><p>证据在改善，市场尚未充分反映。</p></div>
-          <div className="valuation-card current"><span>02 / 部分计入</span><strong>继续观察</strong><p>逻辑正确，但需要业绩追上预期。</p></div>
-          <div className="valuation-card hot"><span>03 / 严重透支</span><strong>等待价格或业绩</strong><p>当前价格依赖极乐观情景才能成立。</p></div>
-        </div>
-      </section>
-
-      <footer className="footer"><div><b>AI 产业研究台</b><span>当前选定池 · 假设跟踪 · 新机会发现</span></div><div>研究原型 · 非个性化投资建议</div></footer>
-    </main>
-  );
+    {active==="复盘" && <section className="page"><PageHead k="AUDIT & REVIEW" title="复盘账" desc="记录结果、相对基准的超额和错误类型，让系统从实际决策中迭代。"/>
+      <div className="grid2"><article className="panel"><form onSubmit={e=>submit("addReview",e)} className="form-grid"><SelectCompany rows={data.companies}/><Field label="复盘标题" name="title"/><label className="field"><span>结果</span><select name="outcome"><option>符合预期</option><option>部分符合</option><option>证伪</option><option>仍待观察</option></select></label><Field label="相对基准超额 %" name="excessReturn" type="number" defaultValue="0"/><label className="field wide"><span>经验与应修改的假设</span><textarea name="lessons" required/></label><button className="primary wide">写入复盘账</button></form></article><article className="panel note"><span className="eyebrow">基准纪律</span><h2>“超额”必须有参照物</h2><p>个股默认相对中证800行业指数；主题 ETF 默认相对中证800或约定宽基。建仓时冻结基准，复盘时不得更换。</p></article></div>
+      <div className="timeline">{data.reviews.map(r=><article key={r.id}><i/><div><span>{r.created_at} · {r.company_name}</span><h3>{r.title}</h3><p>{r.lessons}</p></div><strong className={r.excess_return>=0?"good":"bad"}>{r.excess_return>0?"+":""}{r.excess_return}%</strong></article>)}</div>
+    </section>}
+    <footer className="site-footer">研究辅助系统，不构成投资建议 · 自动模型处于 SHADOW 阶段 · 实盘动作需人工复核</footer>
+  </main>;
 }
+
+function PageHead({k,title,desc}:{k:string;title:string;desc:string}) { return <div className="pagehead"><span>{k}</span><h1>{title}</h1><p>{desc}</p></div> }

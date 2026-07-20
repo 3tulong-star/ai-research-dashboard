@@ -91,13 +91,6 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm run build`: verify the vinext build output
 - `npm test`: build the starter and verify its rendered loading skeleton
 - `npm run db:generate`: generate Drizzle migrations after schema changes
-- `npm run data:update`: update the selected-pool market snapshot
-
-## Daily data update
-
-The repository includes a GitHub Actions workflow at `.github/workflows/update-market-data.yml`.
-After the project is uploaded to GitHub, it can update the selected-pool snapshot on weekdays at
-19:30 Beijing time and commit `data/market-snapshot.json` back to the default branch.
 
 ## Learn More
 

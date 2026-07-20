@@ -31,6 +31,9 @@ const localBindingConfig = {
         },
       ]
     : [],
+  triggers: {
+    crons: ["30 9 * * 1-5"],
+  },
 };
 
 export default defineConfig(async () => {
@@ -44,7 +47,6 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
-    base: process.env.GITHUB_ACTIONS === "true" ? "./" : undefined,
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
