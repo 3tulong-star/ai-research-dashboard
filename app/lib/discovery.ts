@@ -1,5 +1,14 @@
 const EM_URL = "https://push2.eastmoney.com/api/qt/clist/get";
 const SOURCE_VERSION = "a-stock-data@3.4.0-adapter.1";
+const FALLBACK_SOURCE_VERSION = "a-stock-data@3.4.0-ths-tencent-baidu-fallback.1";
+
+const fallbackCore:Record<string,string[]> = {
+  "半导体与存储":"000725,002415,000100,300223,300184,000021,300975,688099,300398,002414,301308,688213,688396,001309,300475,001389,600460,301099,002008,603986,002409,688008,002049,603283,301536,688766,688416,300531,603893,603501,300666,300042,300236,003031,688012,601231,002643,002916,300054,688019,001287,688049,301630,688550,603005,002371,688041,002559,688181,600206,688072,688981,002975".split(","),
+  "机器人":"002841,688002,001339,002444,300124,002236,300458,688400,301603,300083,002600,603236,002273,603337,002979,002472,300503,000157,301029,300602,300679,300488,603270,300607,600499,601717,002881,688777,000887,300476,002747,688686,002690,000425,002180".split(","),
+  "模型与软件":"688036,688111,002432,688475,300866,688628,603629,002351,300768".split(","),
+  "端侧AI":"002241,300408,300613,688378,603890,300976,300566".split(","),
+  "算力基础设施":"000063,601138,600522,600487,600941,601728,600050,000977,603296,300373,002475,600563,002138,002158,000988,300857,300308,000338,002152,300738,002156,300302,002179,688525,603019,300442,300684,603228,300502,002947,301031,002185,603203,600580,600105,000811,603083,002396,002929,002130,002281,688025,300852,600415,688048,002249".split(","),
+};
 
 type Board = { code:string; name:string; change:number; up:number; down:number; chain:string; relevance:number };
 type Quote = { code:string; name:string; industry:string; price:number; change:number; amount:number; turnover:number; pe:number; pb:number; marketCap:number; floatCap:number; change60:number; changeYtd:number };
@@ -36,6 +45,21 @@ async function fetchJson(params:Record<string,string>, retries=5) {
     }
   }
   throw new Error(`东财接口失败: ${last}`);
+}
+
+async function fetchResponse(url:string, init:RequestInit={}, retries=3) {
+  let last="";
+  for(let i=0;i<=retries;i++) {
+    try {
+      const response=await fetch(url,init);
+      if(!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response;
+    } catch(e) {
+      last=e instanceof Error?e.message:String(e);
+      if(i<retries) await sleep(500*(i+1)+Math.floor(Math.random()*250));
+    }
+  }
+  throw new Error(last);
 }
 
 function classify(name:string) {
@@ -82,7 +106,7 @@ async function digest(value:unknown) {
   return [...new Uint8Array(hash)].map(x=>x.toString(16).padStart(2,"0")).join("");
 }
 
-export async function runMarketDiscovery() {
+async function runEastmoneyDiscovery() {
   const retrievedAt=new Date().toISOString();
   const boardPages=[] as Record<string,unknown>[];
   const sourceUrls:string[]=[];
@@ -118,5 +142,101 @@ export async function runMarketDiscovery() {
   const market=await fetchJson({pn:"1",pz:"1",po:"1",np:"1",fltt:"2",invt:"2",fid:"f20",fs:"m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",fields:"f12"});
   sourceUrls.push(market.url);
   const candidates=[...byCode.values()].map(seed=>({...seed,...scoreCandidate(seed),themes:seed.boards.map(b=>b.name)})).sort((a,b)=>b.total-a.total);
-  return {asOf:retrievedAt.slice(0,10),retrievedAt,sourceVersion:SOURCE_VERSION,marketUniverseCount:market.total,boardUniverseCount:boardTotal,matchedBoards:matched,scannedCount:byCode.size,candidates,sourceUrls,rawHash:await digest({retrievedAt,matched,candidates})};
+  return {asOf:retrievedAt.slice(0,10),retrievedAt,sourceVersion:SOURCE_VERSION,sourceName:"Eastmoney via a-stock-data adapter",sourceEndpoint:"push2.eastmoney.com/api/qt/clist/get",marketUniverseCount:market.total,boardUniverseCount:boardTotal,matchedBoards:matched,scannedCount:byCode.size,candidates,sourceUrls,rawHash:await digest({retrievedAt,matched,candidates})};
+}
+
+function fallbackBoard(chain:string,name=chain):Board {
+  const relevance=themes.find(x=>x.chain===chain)?.relevance||68;
+  return {code:`FALLBACK-${chain}`,name,change:0,up:1,down:1,chain,relevance};
+}
+
+function chainIndustry(chain:string) {
+  return chain==="半导体与存储"?"半导体":chain==="机器人"?"自动化设备":chain==="模型与软件"?"软件开发":chain==="端侧AI"?"消费电子":"通信设备";
+}
+
+function prefixed(code:string) {
+  return `${code.startsWith("6")?"sh":code.startsWith("8")?"bj":"sz"}${code}`;
+}
+
+async function tencentQuotes(codes:string[]) {
+  const result=new Map<string,Quote>();
+  for(let i=0;i<codes.length;i+=50) {
+    const batch=codes.slice(i,i+50);
+    const url=`https://qt.gtimg.cn/q=${batch.map(prefixed).join(",")}`;
+    const response=await fetchResponse(url,{headers:{"User-Agent":"Mozilla/5.0"}});
+    const text=new TextDecoder("gbk").decode(await response.arrayBuffer());
+    for(const line of text.split(";")) {
+      const match=line.match(/v_(?:sh|sz|bj)(\d{6})="([\s\S]*)"/); if(!match) continue;
+      const code=match[1]; const v=match[2].split("~"); if(v.length<53) continue;
+      result.set(code,{code,name:v[1]||code,industry:"",price:n(v[3]),change:n(v[32]),amount:n(v[37])*1e4,turnover:n(v[38]),pe:n(v[39]),pb:n(v[46]),marketCap:n(v[44])*1e8,floatCap:n(v[45])*1e8,change60:0,changeYtd:0});
+    }
+    if(i+50<codes.length) await sleep(180);
+  }
+  return result;
+}
+
+async function momentum(code:string) {
+  const year=new Date().getUTCFullYear();
+  const start=Math.floor(Date.UTC(year,0,1)/1000);
+  const url=new URL("https://finance.pae.baidu.com/selfselect/getstockquotation");
+  Object.entries({all:"1",isIndex:"false",isBk:"false",isBlock:"false",isFutures:"false",isStock:"true",newFormat:"1",group:"quotation_kline_ab",finClientType:"pc",code,start_time:String(start),ktype:"1"}).forEach(([k,v])=>url.searchParams.set(k,v));
+  const response=await fetchResponse(url.toString(),{headers:{"User-Agent":"Mozilla/5.0","Accept":"application/vnd.finance-web.v1+json","Origin":"https://gushitong.baidu.com","Referer":"https://gushitong.baidu.com/"}},1);
+  const json=await response.json() as {Result?:{newMarketData?:{marketData?:string}}};
+  const rows=(json.Result?.newMarketData?.marketData||"").split(";").filter(Boolean).map(row=>row.split(","));
+  if(!rows.length) return {change60:0,changeYtd:0};
+  const latest=n(rows.at(-1)?.[3]);
+  const prior60=n(rows[Math.max(0,rows.length-61)]?.[3]);
+  const firstThisYear=rows.find(row=>String(row[1]||"")>=`${year}-01-01`)||rows.at(-1);
+  const first=n(firstThisYear?.[3]);
+  return {change60:prior60?Math.round((latest/prior60-1)*10000)/100:0,changeYtd:first?Math.round((latest/first-1)*10000)/100:0};
+}
+
+async function thsHotBoards() {
+  const byCode=new Map<string,Board[]>();
+  for(let offset=0;offset<6;offset++) {
+    const date=new Date(Date.now()-offset*86400000).toISOString().slice(0,10);
+    try {
+      const response=await fetchResponse(`https://zx.10jqka.com.cn/event/api/getharden/date/${date}/orderby/date/orderway/desc/charset/GBK/`,{headers:{"User-Agent":"Mozilla/5.0"}},1);
+      const json=await response.json() as {data?:Array<{code?:string;reason?:string}>};
+      for(const row of json.data||[]) {
+        const code=String(row.code||""); const labels=String(row.reason||"").split("+");
+        const boards=labels.map(name=>{const hit=classify(name); return hit?fallbackBoard(hit.chain,name):null;}).filter((x):x is Board=>Boolean(x));
+        if(code&&boards.length) byCode.set(code,boards);
+      }
+      if(byCode.size) break;
+    } catch { /* try the previous calendar day */ }
+  }
+  return byCode;
+}
+
+async function runFallbackDiscovery(primaryError:unknown) {
+  const retrievedAt=new Date().toISOString();
+  const hot=await thsHotBoards();
+  const core=new Map<string,{chain:string;boards:Board[]}>();
+  for(const [chain,codes] of Object.entries(fallbackCore)) for(const code of codes) core.set(code,{chain,boards:[fallbackBoard(chain)]});
+  for(const [code,boards] of hot) {
+    const prior=core.get(code);
+    if(prior) prior.boards=[...prior.boards,...boards.filter(b=>!prior.boards.some(x=>x.name===b.name))];
+    else core.set(code,{chain:[...boards].sort((a,b)=>b.relevance-a.relevance)[0].chain,boards});
+  }
+  const quotes=await tencentQuotes([...core.keys()]);
+  const seeds:CandidateSeed[]=[];
+  for(const [code,meta] of core) {
+    const quote=quotes.get(code); if(!quote) continue;
+    let moves={change60:0,changeYtd:0};
+    try { moves=await momentum(code); } catch { /* neutral momentum is safer than aborting the whole daily run */ }
+    seeds.push({...quote,...moves,industry:chainIndustry(meta.chain),boards:meta.boards});
+    await sleep(90);
+  }
+  if(seeds.length<80) throw new Error(`备用行情覆盖不足: ${seeds.length}/80；主源错误: ${primaryError instanceof Error?primaryError.message:String(primaryError)}`);
+  const matched=[...new Map([...core.values()].flatMap(x=>x.boards).map(b=>[`${b.chain}:${b.name}`,b])).values()];
+  const candidates=seeds.map(seed=>({...seed,...scoreCandidate(seed),themes:seed.boards.map(b=>b.name)})).sort((a,b)=>b.total-a.total);
+  const sourceUrls=["https://zx.10jqka.com.cn/event/api/getharden/","https://qt.gtimg.cn/","https://finance.pae.baidu.com/selfselect/getstockquotation"];
+  return {asOf:retrievedAt.slice(0,10),retrievedAt,sourceVersion:FALLBACK_SOURCE_VERSION,sourceName:"THS + Tencent + Baidu fallback via a-stock-data",sourceEndpoint:sourceUrls.join(" | "),marketUniverseCount:quotes.size,boardUniverseCount:matched.length,matchedBoards:matched,scannedCount:seeds.length,candidates,sourceUrls,rawHash:await digest({retrievedAt,matched,candidates})};
+}
+
+export async function runMarketDiscovery() {
+  if(process.env.RESEARCH_FORCE_FALLBACK==="1") return runFallbackDiscovery(new Error("forced fallback verification"));
+  try { return await runEastmoneyDiscovery(); }
+  catch(error) { return runFallbackDiscovery(error); }
 }

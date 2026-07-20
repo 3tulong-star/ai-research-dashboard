@@ -37,4 +37,10 @@ test("market discovery uses bounded serial requests with resilient backoff",asyn
   assert.match(source,/800\*\(2\*\*i\)/);
   assert.match(source,/for\(const board of batch\)/);
   assert.doesNotMatch(source,/Promise\.all\(batch\.map/);
+  assert.match(source,/runFallbackDiscovery/);
+  assert.match(source,/qt\.gtimg\.cn/);
+  assert.match(source,/zx\.10jqka\.com\.cn/);
+  assert.match(source,/finance\.pae\.baidu\.com/);
+  assert.match(source,/firstThisYear/);
+  assert.match(source,/seeds\.length<80/);
 });
