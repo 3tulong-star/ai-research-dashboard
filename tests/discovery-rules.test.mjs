@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { promisify } from "node:util";
 import { scoreCandidate } from "../app/lib/discovery.ts";
 
 const board=(name,chain="算力基础设施",relevance=100,up=50,down=30)=>({code:"BKTEST",name,change:1,up,down,chain,relevance});
@@ -58,4 +60,10 @@ test("market discovery uses bounded serial requests with resilient backoff",asyn
   assert.match(collector,/for offset in range\(8\)/);
   const runner=await readFile(new URL("../scripts/run-static-automation.ts",import.meta.url),"utf8");
   assert.match(runner,/RESEARCH_UNIVERSE/);
+});
+
+test("market history keeps missing values out of zero",async()=>{
+  const run=promisify(execFile);
+  const {stderr}=await run("python3",[new URL("./test_market_history.py",import.meta.url).pathname]);
+  assert.match(stderr,/OK/);
 });

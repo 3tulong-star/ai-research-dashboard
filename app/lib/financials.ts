@@ -1,11 +1,20 @@
 const SINA = "https://quotes.sina.cn/cn/api/openapi.php/CompanyFinanceService.getFinanceReport2022";
 const clamp = (v:number,min=0,max=100)=>Math.max(min,Math.min(max,v));
 const finite = (v:unknown)=>Number.isFinite(Number(v))?Number(v):0;
+const present = (v:unknown):v is number=>typeof v==="number"&&Number.isFinite(v);
 
 type Item={item_field:string;item_title:string;item_value:string|null;item_tongbi:number|string};
 type Report={data:Item[]};
 type Reports=Record<string,Report>;
 type CandidateMetrics={pe:number;change60:number;changeYtd:number;valuationScore:number;industryFitScore:number;themeScore:number;breadthScore:number;riskScore:number;total:number};
+export type MarketHistoryMetrics={
+  dataComplete:boolean; asOf?:string; requestedAsOf?:string; staleDays?:number;
+  valuationMetric?:string|null; valuationCurrent?:number|null; valuationPercentile?:number|null;
+  valuationHistoryCount?:number; valuationWindowYears?:number; drawdown52wPct?:number|null;
+  priceHistoryCount?:number; drawdownWindowTradingDays?:number; change60dPct?:number|null;
+  change252dPct?:number|null; volatilityAnnualizedPct?:number|null; source?:string;
+  sourceUrl?:string; rawHash?:string; error?:string;
+};
 
 async function digest(value:unknown) {
   const bytes=new TextEncoder().encode(JSON.stringify(value));
@@ -50,7 +59,7 @@ function shadowModel(values:Record<string,number>) {
   return {positiveProbability:sigmoid(score("positive"))*100,permanentLossProbability:sigmoid(score("loss"))*100,expectedExcess:score("excess")};
 }
 
-export async function collectFinancialSnapshot(code:string,c:CandidateMetrics) {
+export async function collectFinancialSnapshot(code:string,c:CandidateMetrics,history?:MarketHistoryMetrics) {
   const [income,balance,cash]=await Promise.all([statement(code,"lrb"),statement(code,"fzb"),statement(code,"llb")]);
   const periods=Object.keys(income.reports).filter(x=>balance.reports[x]&&cash.reports[x]).sort();
   const period=periods.at(-1); if(!period) throw new Error("三张财务报表没有共同报告期");
@@ -66,14 +75,18 @@ export async function collectFinancialSnapshot(code:string,c:CandidateMetrics) {
   const cfoMargin=cfo.value/revenue.value;
   const inventoryGap=inventory.yoy-revenue.yoy;
   const debtRatio=liabilities.value/assets.value*100;
+  const marketComplete=Boolean(history?.dataComplete&&present(history.valuationPercentile)&&present(history.drawdown52wPct)&&present(history.volatilityAnnualizedPct)&&present(history.change60dPct)&&present(history.change252dPct));
   const quality=clamp((c.industryFitScore+c.riskScore+c.valuationScore)/75,1,4);
-  const values:Record<string,number>={...medians,revenue_yoy_pct:revenue.yoy,adjusted_margin:margin,cfo_margin:cfoMargin,inventory_gap_pct:inventoryGap,debt_ratio_pct:debtRatio,company_quality_score:quality,industry_probability:.30+c.breadthScore/500,log_pe:Math.log(Math.max(c.pe,1)),relative_momentum_6m_pct:c.change60,relative_momentum_12m_pct:c.changeYtd,two_quarter_positive:revenue.yoy>0&&profit.yoy>0?1:0,cfo_positive:cfo.value>0?1:0,inventory_guard:inventoryGap<=15?1:0,debt_guard:debtRatio<=70?1:0,sector_ELECTRONICS:1};
+  const values:Record<string,number>={...medians,revenue_yoy_pct:revenue.yoy,adjusted_margin:margin,cfo_margin:cfoMargin,inventory_gap_pct:inventoryGap,debt_ratio_pct:debtRatio,company_quality_score:quality,industry_probability:.30+c.breadthScore/500,log_pe:Math.log(Math.max(c.pe,1)),two_quarter_positive:revenue.yoy>0&&profit.yoy>0?1:0,cfo_positive:cfo.value>0?1:0,inventory_guard:inventoryGap<=15?1:0,debt_guard:debtRatio<=70?1:0,sector_ELECTRONICS:1};
+  if(marketComplete) Object.assign(values,{ps_self_percentile:Number(history?.valuationPercentile)/100,relative_momentum_6m_pct:Number(history?.change60dPct),relative_momentum_12m_pct:Number(history?.change252dPct),drawdown_from_52w_high_pct:Number(history?.drawdown52wPct),volatility_6m_annualized_pct:Number(history?.volatilityAnnualizedPct)});
   const model=shadowModel(values);
   return {
     period, revenue:revenue.value, revenueGrowth:revenue.yoy, netProfit:profit.value, netProfitGrowth:profit.yoy, assets:assets.value, liabilities:liabilities.value, inventory:inventory.value, cfo:cfo.value,
     marginTrend:(margin-previousMargin)*100,cfoQuality:clamp(50+25*((profit.value?cfo.value/profit.value:0)-1)),inventoryGap,debtRatio,
-    industryScore:clamp((c.themeScore+c.breadthScore)/2),moatScore:clamp((c.industryFitScore+c.riskScore+c.total)/3),catalystScore:clamp((c.themeScore+c.breadthScore+c.change60)/3),
-    positiveProbability:clamp(model.positiveProbability),expectedExcess:Math.max(-100,Math.min(100,model.expectedExcess)),permanentLossProbability:clamp(model.permanentLossProbability),valuationPercentile:clamp(100-c.valuationScore),drawdown:Math.min(0,c.change60),volatility:medians.volatility_6m_annualized_pct,
-    rawHash:await digest({income:income.raw,balance:balance.raw,cash:cash.raw}),sourceUrls:[income.url,balance.url,cash.url],modelVersion:"REENTRY-0.6-MODEL-0.2",modelStatus:"SHADOW",
+    industryScore:clamp((c.themeScore+c.breadthScore)/2),moatScore:clamp((c.industryFitScore+c.riskScore+c.total)/3),catalystScore:clamp((c.themeScore+c.breadthScore+(marketComplete?Number(history?.change60dPct):0))/3),
+    positiveProbability:clamp(model.positiveProbability),expectedExcess:Math.max(-100,Math.min(100,model.expectedExcess)),permanentLossProbability:clamp(model.permanentLossProbability),
+    valuationPercentile:marketComplete?Number(history?.valuationPercentile):null,drawdown:marketComplete?Number(history?.drawdown52wPct):null,volatility:marketComplete?Number(history?.volatilityAnnualizedPct):null,
+    marketDataComplete:marketComplete,marketHistory:history??null,
+    rawHash:await digest({income:income.raw,balance:balance.raw,cash:cash.raw,marketHistory:history??null}),sourceUrls:[income.url,balance.url,cash.url,...(history?.sourceUrl?[history.sourceUrl]:[])],modelVersion:"REENTRY-0.7-MODEL-0.3",modelStatus:"SHADOW",
   };
 }
