@@ -5,7 +5,7 @@ import { runMarketDiscovery } from "./discovery";
 import { collectFinancialSnapshot } from "./financials";
 
 type DB=D1Database;
-const SOURCE_VERSION="AUTO-RESEARCH-0.1";
+const SOURCE_VERSION="AUTO-RESEARCH-0.2";
 
 async function chunks(db:DB, statements:D1PreparedStatement[], size=50) {
   for(let i=0;i<statements.length;i+=size) await db.batch(statements.slice(i,i+size));
@@ -47,6 +47,7 @@ export async function runFullAutomation(db:DB,trigger="SCHEDULED") {
       try {
         const f=await collectFinancialSnapshot(c.code,c);
         await db.prepare(`INSERT INTO financial_records (run_id,company_id,period,source,revenue,revenue_growth,net_profit,net_profit_growth,assets,liabilities,inventory,cfo,raw_hash,data_complete) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)`).bind(runId,companyId,f.period,"新浪财经原始报表接口",f.revenue,f.revenueGrowth,f.netProfit,f.netProfitGrowth,f.assets,f.liabilities,f.inventory,f.cfo,f.rawHash).run(); financials++;
+        if(!f.marketDataComplete) throw new Error("历史估值或252日复权价格数据缺失；已禁止生成决策，请使用收盘后云端全流程重试");
         const snapshot=await db.prepare(`INSERT INTO snapshots (company_id,period,revenue_growth,margin_trend,cfo_quality,inventory_gap,debt_ratio,industry_score,moat_score,catalyst_score,positive_probability,expected_excess,permanent_loss_probability,valuation_percentile,drawdown,volatility,tradable,data_complete,model_version,model_status,automation_run_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?)`).bind(companyId,f.period,f.revenueGrowth,f.marginTrend,f.cfoQuality,f.inventoryGap,f.debtRatio,f.industryScore,f.moatScore,f.catalystScore,f.positiveProbability,f.expectedExcess,f.permanentLossProbability,f.valuationPercentile,f.drawdown,f.volatility,f.modelVersion,f.modelStatus,runId).run(); snapshots++;
         const d=decide({industryScore:f.industryScore,moatScore:f.moatScore,catalystScore:f.catalystScore,revenueGrowth:f.revenueGrowth,valuationPercentile:f.valuationPercentile,positiveProbability:f.positiveProbability,expectedExcess:f.expectedExcess,permanentLossProbability:f.permanentLossProbability,tradable:1,dataComplete:1,sector:c.primaryChain,modelStatus:f.modelStatus});
         await db.prepare("INSERT INTO decisions (company_id,snapshot_id,verdict,score,reasons_json,risk_json) VALUES (?,?,?,?,?,?)").bind(companyId,Number(snapshot.meta.last_row_id),d.verdict,d.score,JSON.stringify(d.reasons),JSON.stringify(d.risk)).run(); decisions++;

@@ -42,6 +42,10 @@ test("ships persistence, migrations, and production metadata", async () => {
   assert.match(decision, /positiveProbability < 55/);
   assert.match(decision, /expectedExcess < 10/);
   assert.match(decision, /permanentLossProbability > 10/);
+  assert.match(decision, /估值历史数据缺失，否决/);
+  const financials = await readFile(new URL("../app/lib/financials.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(financials, /valuationPercentile:clamp\(100-c\.valuationScore\)/);
+  assert.doesNotMatch(financials, /drawdown:Math\.min\(0,c\.change60\)/);
   assert.match(schema, /export const decisions/);
   assert.match(schema, /export const discoveryCandidates/);
   assert.match(schema, /export const automationRuns/);

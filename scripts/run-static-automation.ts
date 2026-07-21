@@ -1,9 +1,14 @@
+import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { collectAnnouncements } from "../app/lib/announcements.ts";
 import { diversified } from "../app/lib/automation-rules.ts";
 import { decide } from "../app/lib/decision.ts";
 import { runMarketDiscovery, type FallbackUniverseStock } from "../app/lib/discovery.ts";
-import { collectFinancialSnapshot } from "../app/lib/financials.ts";
+import { collectFinancialSnapshot, type MarketHistoryMetrics } from "../app/lib/financials.ts";
+
+const runFile=promisify(execFile);
+type MarketHistoryPayload={retrievedAt:string;source:string;sourceUrl:string;stocks:Record<string,MarketHistoryMetrics>};
 
 const outputUrl = process.env.RESEARCH_OUTPUT
   ? new URL(`file://${process.env.RESEARCH_OUTPUT}`)
@@ -26,7 +31,16 @@ const exceptions: Record<string, unknown>[] = [];
 const sourceLogs: Record<string, unknown>[] = [];
 
 function tickerFor(code: string) {
-  return `${code}.${code.startsWith("6") ? "SH" : "SZ"}`;
+  return `${code}.${code.startsWith("6") ? "SH" : code.startsWith("4")||code.startsWith("8") ? "BJ" : "SZ"}`;
+}
+
+async function marketHistory(codes:string[],asOf:string):Promise<MarketHistoryPayload> {
+  const output=process.env.RESEARCH_MARKET_HISTORY||"/tmp/market-history.json";
+  if(!process.env.RESEARCH_MARKET_HISTORY) {
+    const script=new URL("./collect_market_history.py",import.meta.url).pathname;
+    await runFile(process.env.RESEARCH_PYTHON||"python3",[script,"--codes",codes.join(","),"--as-of",asOf,"--output",output],{timeout:10*60*1000,maxBuffer:1024*1024});
+  }
+  return JSON.parse(await readFile(output,"utf8")) as MarketHistoryPayload;
 }
 
 function addException(company: Record<string, unknown> | null, stage: string, error: unknown) {
@@ -52,6 +66,12 @@ async function main() {
   });
 
   const promoted = diversified(discovery.candidates);
+  let history:MarketHistoryPayload={retrievedAt:new Date().toISOString(),source:"Baostock daily valuation and forward-adjusted price history",sourceUrl:"https://pypi.org/project/baostock/",stocks:{}};
+  try {
+    history=await marketHistory(promoted.map(candidate=>candidate.code),discovery.asOf);
+    const complete=Object.values(history.stocks).filter(row=>row.dataComplete).length;
+    sourceLogs.push({id:nextSourceId++,run_id:discoveryRunId,source:history.source,endpoint:history.sourceUrl,retrieved_at:history.retrievedAt,status:complete===promoted.length?"SUCCESS":"PARTIAL",row_count:complete,raw_hash:Object.values(history.stocks).map(row=>row.rawHash||"").join("").slice(0,64),error:complete===promoted.length?"":`${promoted.length-complete} stocks missing complete market history`});
+  } catch(error) { addException(null,"MARKET_HISTORY",error); }
   for (const candidate of promoted) {
     const company = {
       id: nextCompanyId++, ticker: tickerFor(candidate.code), name: candidate.name,
@@ -68,9 +88,11 @@ async function main() {
       evidence_type: "发现线索", stance: "中性", notes: candidate.reasons.join("；"),
       created_at: now.toISOString(),
     });
+    if(!history.stocks[candidate.code]?.dataComplete) addException(company,"MARKET_HISTORY",history.stocks[candidate.code]?.error||"历史估值或复权价格数据缺失，已禁止通过决策闸门");
 
     try {
-      const financial = await collectFinancialSnapshot(candidate.code, candidate);
+      const financial = await collectFinancialSnapshot(candidate.code, candidate, history.stocks[candidate.code]);
+      const market=financial.marketHistory;
       const snapshotId = nextSnapshotId++;
       snapshots.push({
         id: snapshotId, company_id: company.id, company_name: company.name, ticker: company.ticker,
@@ -82,7 +104,11 @@ async function main() {
         expected_excess: financial.expectedExcess,
         permanent_loss_probability: financial.permanentLossProbability,
         valuation_percentile: financial.valuationPercentile, drawdown: financial.drawdown,
-        volatility: financial.volatility, tradable: 1, data_complete: 1,
+        volatility: financial.volatility, tradable: 1, data_complete: financial.marketDataComplete?1:0,
+        valuation_metric: market?.valuationMetric??null, valuation_current: market?.valuationCurrent??null,
+        valuation_history_count: market?.valuationHistoryCount??0, valuation_window_years: market?.valuationWindowYears??5,
+        price_history_count: market?.priceHistoryCount??0, drawdown_window_trading_days: market?.drawdownWindowTradingDays??252,
+        market_as_of: market?.asOf??null, market_source: market?.source??null, market_source_url: market?.sourceUrl??null,
         model_version: financial.modelVersion, model_status: financial.modelStatus,
         automation_run_id: runId, created_at: new Date().toISOString(),
       });
@@ -92,7 +118,7 @@ async function main() {
         valuationPercentile: financial.valuationPercentile,
         positiveProbability: financial.positiveProbability, expectedExcess: financial.expectedExcess,
         permanentLossProbability: financial.permanentLossProbability, tradable: 1,
-        dataComplete: 1, sector: candidate.primaryChain, modelStatus: financial.modelStatus,
+        dataComplete: financial.marketDataComplete?1:0, sector: candidate.primaryChain, modelStatus: financial.modelStatus,
       });
       decisions.push({
         id: nextDecisionId++, company_id: company.id, snapshot_id: snapshotId,

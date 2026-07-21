@@ -21,3 +21,9 @@ test("shadow model can never emit a live portfolio candidate",()=>{
   assert.equal(result.risk.initialPositionPct,0);
   assert.ok(result.reasons.some(x=>x.includes("影子模型")));
 });
+
+test("missing market history is a hard rejection",()=>{
+  const result=decide({industryScore:95,moatScore:95,catalystScore:95,revenueGrowth:50,valuationPercentile:null,positiveProbability:90,expectedExcess:40,permanentLossProbability:1,tradable:1,dataComplete:0,sector:"电子",modelStatus:"VALIDATED"});
+  assert.equal(result.verdict,"拒绝");
+  assert.ok(result.reasons.some(reason=>reason.includes("估值历史数据缺失")));
+});

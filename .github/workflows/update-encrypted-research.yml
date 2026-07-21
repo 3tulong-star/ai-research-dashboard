@@ -46,6 +46,9 @@ jobs:
       - name: Build active full-market universe
         run: python scripts/collect_full_market_universe.py --output /tmp/full-a-share-universe.json
 
+      - name: Test historical valuation and drawdown calculations
+        run: python tests/test_market_history.py
+
       - name: Generate plaintext research snapshot in temporary storage
         env:
           RESEARCH_OUTPUT: /tmp/static-workspace.json
@@ -54,7 +57,7 @@ jobs:
 
       - name: Validate and encrypt research snapshot
         run: |
-          jq -e '.generatedAt and (.discoveryCandidates | length > 0) and (.snapshots | length > 0) and (.decisions | length > 0)' /tmp/static-workspace.json >/dev/null
+          jq -e '.generatedAt and (.discoveryCandidates | length > 0) and (.snapshots | length > 0) and (.decisions | length > 0) and (all(.snapshots[]; .data_complete == 1 and (.valuation_percentile | type == "number") and (.drawdown | type == "number") and .valuation_history_count >= 500 and .price_history_count >= 200))' /tmp/static-workspace.json >/dev/null
           node scripts/encrypt-research-snapshot.mjs /tmp/static-workspace.json data/research-snapshot.enc.json
           rm -f /tmp/static-workspace.json
 
