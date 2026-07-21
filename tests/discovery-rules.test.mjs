@@ -31,6 +31,12 @@ test("overheated loss maker scores below a healthy peer",()=>{
   assert.ok(healthy.total-hot.total>=20);
 });
 
+test("a broad industry match alone can never enter deep research",()=>{
+  const broad={code:"UNIVERSE",name:"行业底表：电子设备",change:0,up:1,down:1,chain:"算力基础设施",relevance:60};
+  const result=scoreCandidate({...base,boards:[broad]});
+  assert.notEqual(result.pool,"深度研究池");
+});
+
 test("market discovery uses bounded serial requests with resilient backoff",async()=>{
   const source=await readFile(new URL("../app/lib/discovery.ts",import.meta.url),"utf8");
   assert.match(source,/retries=5/);
@@ -42,5 +48,13 @@ test("market discovery uses bounded serial requests with resilient backoff",asyn
   assert.match(source,/zx\.10jqka\.com\.cn/);
   assert.match(source,/finance\.pae\.baidu\.com/);
   assert.match(source,/firstThisYear/);
-  assert.match(source,/seeds\.length<80/);
+  assert.match(source,/broadIndustryBoard/);
+  assert.match(source,/fallbackUniverse\.length\?250:80/);
+  assert.match(source,/Promise\.all\(workers\)/);
+  const collector=await readFile(new URL("../scripts/collect_full_market_universe.py",import.meta.url),"utf8");
+  assert.match(collector,/query_all_stock/);
+  assert.match(collector,/query_stock_industry/);
+  assert.match(collector,/len\(active\) < 4_500/);
+  const runner=await readFile(new URL("../scripts/run-static-automation.ts",import.meta.url),"utf8");
+  assert.match(runner,/RESEARCH_UNIVERSE/);
 });

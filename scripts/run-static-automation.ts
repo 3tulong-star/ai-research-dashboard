@@ -1,8 +1,8 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { collectAnnouncements } from "../app/lib/announcements.ts";
 import { diversified } from "../app/lib/automation-rules.ts";
 import { decide } from "../app/lib/decision.ts";
-import { runMarketDiscovery } from "../app/lib/discovery.ts";
+import { runMarketDiscovery, type FallbackUniverseStock } from "../app/lib/discovery.ts";
 import { collectFinancialSnapshot } from "../app/lib/financials.ts";
 
 const outputUrl = process.env.RESEARCH_OUTPUT
@@ -39,7 +39,12 @@ function addException(company: Record<string, unknown> | null, stage: string, er
 }
 
 async function main() {
-  const discovery = await runMarketDiscovery();
+  let fallbackUniverse:FallbackUniverseStock[]=[];
+  if(process.env.RESEARCH_UNIVERSE) {
+    const universe=JSON.parse(await readFile(process.env.RESEARCH_UNIVERSE,"utf8")) as {stocks?:FallbackUniverseStock[]};
+    fallbackUniverse=universe.stocks??[];
+  }
+  const discovery = await runMarketDiscovery({fallbackUniverse});
   sourceLogs.push({
     id: nextSourceId++, run_id: discoveryRunId, source: discovery.sourceName,
     endpoint: discovery.sourceEndpoint, retrieved_at: discovery.retrievedAt,
