@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import baostock as bs
@@ -34,7 +34,20 @@ def collect(as_of: str) -> dict:
         raise RuntimeError(f"Baostock login failed: {login.error_msg}")
     try:
         industries = rows(bs.query_stock_industry())
-        securities = rows(bs.query_all_stock(day=as_of))
+        requested = date.fromisoformat(as_of)
+        securities = []
+        resolved_as_of = as_of
+        for offset in range(8):
+            candidate = (requested - timedelta(days=offset)).isoformat()
+            candidate_rows = rows(bs.query_all_stock(day=candidate))
+            active_count = sum(
+                1 for item in candidate_rows
+                if item.get("tradeStatus") == "1" and A_SHARE.match(item.get("code", ""))
+            )
+            if active_count >= 4_500:
+                securities = candidate_rows
+                resolved_as_of = candidate
+                break
     finally:
         bs.logout()
 
@@ -64,7 +77,8 @@ def collect(as_of: str) -> dict:
     active.sort(key=lambda item: item["code"])
     return {
         "schemaVersion": 1,
-        "asOf": as_of,
+        "asOf": resolved_as_of,
+        "requestedAsOf": as_of,
         "retrievedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
         "source": "Baostock query_all_stock + query_stock_industry",
         "sourceUrl": "https://www.baostock.com/",
