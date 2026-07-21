@@ -55,6 +55,7 @@ test("market discovery uses bounded serial requests with resilient backoff",asyn
   assert.match(collector,/query_all_stock/);
   assert.match(collector,/query_stock_industry/);
   assert.match(collector,/len\(active\) < 4_500/);
+  assert.match(collector,/for offset in range\(8\)/);
   const runner=await readFile(new URL("../scripts/run-static-automation.ts",import.meta.url),"utf8");
   assert.match(runner,/RESEARCH_UNIVERSE/);
 });
