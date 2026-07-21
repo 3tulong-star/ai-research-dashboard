@@ -13,6 +13,8 @@ const fallbackCore:Record<string,string[]> = {
 type Board = { code:string; name:string; change:number; up:number; down:number; chain:string; relevance:number };
 type Quote = { code:string; name:string; industry:string; price:number; change:number; amount:number; turnover:number; pe:number; pb:number; marketCap:number; floatCap:number; change60:number; changeYtd:number };
 type CandidateSeed = Quote & { boards:Board[] };
+export type FallbackUniverseStock = { code:string; name:string; industry:string };
+type DiscoveryOptions = { fallbackUniverse?:FallbackUniverseStock[] };
 
 const themes = [
   { chain:"算力基础设施", relevance:100, re:/光模块|CPO|铜缆高速|液冷服务器|算力租赁|数据中心|服务器|IDC概念/ },
@@ -145,13 +147,23 @@ async function runEastmoneyDiscovery() {
   return {asOf:retrievedAt.slice(0,10),retrievedAt,sourceVersion:SOURCE_VERSION,sourceName:"Eastmoney via a-stock-data adapter",sourceEndpoint:"push2.eastmoney.com/api/qt/clist/get",marketUniverseCount:market.total,boardUniverseCount:boardTotal,matchedBoards:matched,scannedCount:byCode.size,candidates,sourceUrls,rawHash:await digest({retrievedAt,matched,candidates})};
 }
 
-function fallbackBoard(chain:string,name=chain):Board {
-  const relevance=themes.find(x=>x.chain===chain)?.relevance||68;
+function fallbackBoard(chain:string,name=chain,relevanceOverride?:number):Board {
+  const relevance=relevanceOverride??themes.find(x=>x.chain===chain)?.relevance??68;
   return {code:`FALLBACK-${chain}`,name,change:0,up:1,down:1,chain,relevance};
 }
 
 function chainIndustry(chain:string) {
   return chain==="半导体与存储"?"半导体":chain==="机器人"?"自动化设备":chain==="模型与软件"?"软件开发":chain==="端侧AI"?"消费电子":"通信设备";
+}
+
+function broadIndustryBoard(stock:FallbackUniverseStock):Board|null {
+  const label=`${stock.name} ${stock.industry}`;
+  if(/半导体|集成电路|芯片|微电子|存储/.test(label)) return fallbackBoard("半导体与存储",`行业底表：${stock.industry||"半导体"}`,72);
+  if(/机器人|自动化|电机|通用设备|专用设备|仪器仪表/.test(label)) return fallbackBoard("机器人",`行业底表：${stock.industry||"智能制造"}`,58);
+  if(/软件|信息技术|互联网|数据服务|计算机/.test(label)) return fallbackBoard("模型与软件",`行业底表：${stock.industry||"软件与信息技术"}`,62);
+  if(/通信|电子设备|电子元件|光学|消费电子/.test(label)) return fallbackBoard("算力基础设施",`行业底表：${stock.industry||"电子与通信"}`,60);
+  if(/汽车|汽车零部件/.test(label)) return fallbackBoard("自动驾驶",`行业底表：${stock.industry||"汽车产业"}`,48);
+  return null;
 }
 
 function prefixed(code:string) {
@@ -209,34 +221,58 @@ async function thsHotBoards() {
   return byCode;
 }
 
-async function runFallbackDiscovery(primaryError:unknown) {
+async function runFallbackDiscovery(primaryError:unknown, fallbackUniverse:FallbackUniverseStock[] = []) {
   const retrievedAt=new Date().toISOString();
   const hot=await thsHotBoards();
-  const core=new Map<string,{chain:string;boards:Board[]}>();
-  for(const [chain,codes] of Object.entries(fallbackCore)) for(const code of codes) core.set(code,{chain,boards:[fallbackBoard(chain)]});
+  const core=new Map<string,{chain:string;boards:Board[];stock?:FallbackUniverseStock}>();
+  for(const stock of fallbackUniverse) {
+    const board=broadIndustryBoard(stock); if(!board) continue;
+    core.set(stock.code,{chain:board.chain,boards:[board],stock});
+  }
+  for(const [chain,codes] of Object.entries(fallbackCore)) for(const code of codes) {
+    const prior=core.get(code);
+    if(prior) { prior.chain=chain; prior.boards.unshift(fallbackBoard(chain)); }
+    else core.set(code,{chain,boards:[fallbackBoard(chain)]});
+  }
   for(const [code,boards] of hot) {
     const prior=core.get(code);
     if(prior) prior.boards=[...prior.boards,...boards.filter(b=>!prior.boards.some(x=>x.name===b.name))];
     else core.set(code,{chain:[...boards].sort((a,b)=>b.relevance-a.relevance)[0].chain,boards});
   }
   const quotes=await tencentQuotes([...core.keys()]);
-  const seeds:CandidateSeed[]=[];
+  const preliminary:CandidateSeed[]=[];
   for(const [code,meta] of core) {
     const quote=quotes.get(code); if(!quote) continue;
-    let moves={change60:0,changeYtd:0};
-    try { moves=await momentum(code); } catch { /* neutral momentum is safer than aborting the whole daily run */ }
-    seeds.push({...quote,...moves,industry:chainIndustry(meta.chain),boards:meta.boards});
-    await sleep(90);
+    preliminary.push({...quote,name:quote.name||meta.stock?.name||code,industry:meta.stock?.industry||chainIndustry(meta.chain),boards:meta.boards});
   }
-  if(seeds.length<80) throw new Error(`备用行情覆盖不足: ${seeds.length}/80；主源错误: ${primaryError instanceof Error?primaryError.message:String(primaryError)}`);
+  const detailLimit=fallbackUniverse.length?360:preliminary.length;
+  const detailed=preliminary
+    .map(seed=>({seed,score:scoreCandidate(seed).total}))
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,detailLimit)
+    .map(item=>item.seed);
+  const cursor={value:0};
+  const workers=Array.from({length:Math.min(4,detailed.length)},async()=>{
+    while(cursor.value<detailed.length) {
+      const seed=detailed[cursor.value++];
+      try { Object.assign(seed,await momentum(seed.code)); } catch { /* retain neutral momentum and keep the run auditable */ }
+      await sleep(80);
+    }
+  });
+  await Promise.all(workers);
+  const seeds=detailed;
+  const minimum=fallbackUniverse.length?250:80;
+  if(quotes.size<minimum||seeds.length<minimum) throw new Error(`备用行情覆盖不足: quotes=${quotes.size}, detailed=${seeds.length}, minimum=${minimum}；主源错误: ${primaryError instanceof Error?primaryError.message:String(primaryError)}`);
   const matched=[...new Map([...core.values()].flatMap(x=>x.boards).map(b=>[`${b.chain}:${b.name}`,b])).values()];
   const candidates=seeds.map(seed=>({...seed,...scoreCandidate(seed),themes:seed.boards.map(b=>b.name)})).sort((a,b)=>b.total-a.total);
   const sourceUrls=["https://zx.10jqka.com.cn/event/api/getharden/","https://qt.gtimg.cn/","https://finance.pae.baidu.com/selfselect/getstockquotation"];
-  return {asOf:retrievedAt.slice(0,10),retrievedAt,sourceVersion:FALLBACK_SOURCE_VERSION,sourceName:"THS + Tencent + Baidu fallback via a-stock-data",sourceEndpoint:sourceUrls.join(" | "),marketUniverseCount:quotes.size,boardUniverseCount:matched.length,matchedBoards:matched,scannedCount:seeds.length,candidates,sourceUrls,rawHash:await digest({retrievedAt,matched,candidates})};
+  const sourceName=fallbackUniverse.length?"Baostock full A-share universe + THS + Tencent + Baidu fallback":"THS + Tencent + Baidu fallback via a-stock-data";
+  if(fallbackUniverse.length) sourceUrls.unshift("https://www.baostock.com/");
+  return {asOf:retrievedAt.slice(0,10),retrievedAt,sourceVersion:`${FALLBACK_SOURCE_VERSION}${fallbackUniverse.length?"-full-market":""}`,sourceName,sourceEndpoint:sourceUrls.join(" | "),marketUniverseCount:fallbackUniverse.length||quotes.size,boardUniverseCount:matched.length,matchedBoards:matched,scannedCount:quotes.size,candidates,sourceUrls,rawHash:await digest({retrievedAt,matched,candidates})};
 }
 
-export async function runMarketDiscovery() {
-  if(process.env.RESEARCH_FORCE_FALLBACK==="1") return runFallbackDiscovery(new Error("forced fallback verification"));
+export async function runMarketDiscovery(options:DiscoveryOptions={}) {
+  if(process.env.RESEARCH_FORCE_FALLBACK==="1") return runFallbackDiscovery(new Error("forced fallback verification"),options.fallbackUniverse);
   try { return await runEastmoneyDiscovery(); }
-  catch(error) { return runFallbackDiscovery(error); }
+  catch(error) { return runFallbackDiscovery(error,options.fallbackUniverse); }
 }

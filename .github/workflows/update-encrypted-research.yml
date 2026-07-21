@@ -30,12 +30,26 @@ jobs:
           node-version: "22"
           cache: npm
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-data.txt
+
+      - name: Install A-share universe collector
+        run: python -m pip install -r requirements-data.txt
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Build active full-market universe
+        run: python scripts/collect_full_market_universe.py --output /tmp/full-a-share-universe.json
 
       - name: Generate plaintext research snapshot in temporary storage
         env:
           RESEARCH_OUTPUT: /tmp/static-workspace.json
+          RESEARCH_UNIVERSE: /tmp/full-a-share-universe.json
         run: npm run research:run
 
       - name: Validate and encrypt research snapshot
