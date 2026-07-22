@@ -1,10 +1,9 @@
-name: Update encrypted research snapshot
+name: Legacy encrypted research snapshot (manual only)
 
 on:
   workflow_dispatch:
-  schedule:
-    # 17:31 Asia/Shanghai = 09:31 UTC, Monday through Friday.
-    - cron: "31 9 * * 1-5"
+  # Scheduled execution is intentionally disabled. The local transactional
+  # SCORE-0.2 pipeline is authoritative; this legacy workflow remains manual-only.
 
 permissions:
   contents: write
