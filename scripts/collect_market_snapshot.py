@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Collect a low-frequency market snapshot for the selected A-share pool.
 
-Baostock is the primary source here because it is free, structured, and has a
-small Python client. The output is deliberately an appendable snapshot rather
-than a live quote service: the dashboard only needs one post-close update per
-day, and every value carries its source date.
+Baostock is the primary source and AkShare is a fallback when Baostock cannot
+log in. The output is deliberately an appendable snapshot rather than a live
+quote service: the dashboard only needs one post-close update per day.
 """
 
 from __future__ import annotations
@@ -42,6 +41,64 @@ def parse_number(value: str | None) -> float | None:
 
 def market_code(code: str) -> str:
     return f"{'sh' if code.startswith('6') else 'sz'}.{code}"
+
+
+def build_quote(code: str, name: str, latest: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    close = parse_number(latest.get("close"))
+    first_close = parse_number(rows[max(0, len(rows) - 5)].get("close"))
+    five_day_change = None
+    if close is not None and first_close not in (None, 0):
+        five_day_change = round((close / first_close - 1) * 100, 2)
+    return {
+        "code": code,
+        "name": name,
+        "price": close,
+        "changePct": parse_number(latest.get("pctChg")),
+        "fiveDayChangePct": five_day_change,
+        "turnoverPct": parse_number(latest.get("turn")),
+        "peTTM": parse_number(latest.get("peTTM")),
+        "pbMRQ": parse_number(latest.get("pbMRQ")),
+        "date": latest.get("date"),
+        "status": "ok",
+    }
+
+
+def collect_akshare(start_date: str, end_date: str) -> dict[str, Any]:
+    try:
+        import akshare as ak
+    except ImportError as exc:
+        raise RuntimeError("AkShare 未安装（requirements-data-optional.txt）") from exc
+
+    quotes: list[dict[str, Any]] = []
+    for code, name in SELECTED_POOL:
+        frame = ak.stock_zh_a_hist(
+            symbol=code,
+            period="daily",
+            start_date=start_date.replace("-", ""),
+            end_date=end_date.replace("-", ""),
+            adjust="",
+        )
+        rows = []
+        for row in frame.to_dict("records"):
+            rows.append({
+                "date": str(row.get("日期", "")),
+                "close": row.get("收盘"),
+                "pctChg": row.get("涨跌幅"),
+                "turn": row.get("换手率"),
+                "peTTM": None,
+                "pbMRQ": None,
+            })
+        if rows:
+            quotes.append(build_quote(code, name, rows[-1], rows))
+        else:
+            quotes.append({"code": code, "name": name, "price": None, "changePct": None,
+                           "fiveDayChangePct": None, "turnoverPct": None, "peTTM": None,
+                           "pbMRQ": None, "date": None, "status": "error", "error": "没有返回数据"})
+
+    dates = [item["date"] for item in quotes if item.get("date")]
+    return {"quotes": quotes, "latestTradingDate": max(dates) if dates else None,
+            "source": "AkShare", "sourceUrl": "https://akshare.akfamily.xyz/",
+            "status": "已更新" if any(item["status"] == "ok" for item in quotes) else "采集失败"}
 
 
 def collect(start_date: str, end_date: str) -> dict[str, Any]:
@@ -96,20 +153,7 @@ def collect(start_date: str, end_date: str) -> dict[str, Any]:
             if close is not None and first_close not in (None, 0):
                 five_day_change = round((close / first_close - 1) * 100, 2)
 
-            quotes.append(
-                {
-                    "code": code,
-                    "name": name,
-                    "price": close,
-                    "changePct": parse_number(latest.get("pctChg")),
-                    "fiveDayChangePct": five_day_change,
-                    "turnoverPct": parse_number(latest.get("turn")),
-                    "peTTM": parse_number(latest.get("peTTM")),
-                    "pbMRQ": parse_number(latest.get("pbMRQ")),
-                    "date": latest.get("date"),
-                    "status": "ok",
-                }
-            )
+            quotes.append(build_quote(code, name, latest, rows))
     finally:
         bs.logout()
 
@@ -135,7 +179,20 @@ def main() -> None:
 
     end_date = args.end_date or date.today().isoformat()
     start_date = args.start_date or (date.today() - timedelta(days=45)).isoformat()
-    snapshot = collect(start_date, end_date)
+    try:
+        snapshot = collect(start_date, end_date)
+    except Exception as primary_error:
+        print(f"Baostock 失败，尝试 AkShare 备用源：{primary_error}", file=sys.stderr)
+        try:
+            fallback = collect_akshare(start_date, end_date)
+            snapshot = {
+                "schemaVersion": 1,
+                "collectedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+                **fallback,
+                "message": "使用 AkShare 备用源；PE/PB 可能为空。仅更新当前选定池，其他研究结论不变。",
+            }
+        except Exception as fallback_error:
+            raise RuntimeError(f"Baostock 与 AkShare 均失败：{primary_error}; {fallback_error}") from fallback_error
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
