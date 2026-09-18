@@ -29,12 +29,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements-data.txt
+          cache-dependency-path: |
+            requirements-data.txt
+            requirements-data-optional.txt
 
       - name: Install data collector
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-data.txt
+          python -m pip install -r requirements-data-optional.txt
 
       - name: Update selected-pool snapshot
         run: sh scripts/run_data_update.sh
